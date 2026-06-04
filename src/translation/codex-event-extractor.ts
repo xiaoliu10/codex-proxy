@@ -84,6 +84,7 @@ export interface ExtractedEvent {
   responseId?: string;
   textDelta?: string;
   reasoningDelta?: string;
+  reasoningSignature?: string;
   usage?: UsageInfo;
   error?: { code: string; message: string };
   functionCallStart?: FunctionCallStart;
@@ -185,6 +186,10 @@ export async function* iterateCodexEvents(
       case "response.completed":
         if (typed.response.id) extracted.responseId = typed.response.id;
         if (typed.response.usage) extracted.usage = typed.response.usage;
+        // Extract reasoning signature if present (for thinking block)
+        if (typeof (typed.response as Record<string, unknown>).signature === "string") {
+          extracted.reasoningSignature = (typed.response as Record<string, unknown>).signature as string;
+        }
         break;
 
       case "error":

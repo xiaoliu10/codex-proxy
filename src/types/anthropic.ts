@@ -168,6 +168,10 @@ export interface AnthropicContentBlock {
   type: "text" | "thinking" | "tool_use";
   text?: string;
   thinking?: string;
+  /** Cryptographic signature for thinking blocks. Required by Claude Code / Anthropic SDK
+   *  when the block type is "thinking". Missing signature causes the SDK to reject the
+   *  response as malformed. */
+  signature?: string;
   id?: string;
   name?: string;
   input?: Record<string, unknown>;

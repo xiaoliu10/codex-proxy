@@ -71,6 +71,20 @@ function resolveCacheUsage(
   return { cacheReadTokens, cacheCreationTokens };
 }
 
+/**
+ * Placeholder signature for thinking blocks when the upstream does not
+ * provide one (Codex reasoning summaries have no cryptographic signature).
+ * Claude Code requires the `signature` field to be present and non-empty
+ * on thinking content blocks — without it the SDK treats the entire
+ * response as malformed (HTTP 200 → "empty or malformed response").
+ *
+ * The value is a valid base64 string that passes Anthropic SDK schema
+ * validation. It is NOT a cryptographically valid signature; it merely
+ * satisfies the client-side format requirement so the proxy can deliver
+ * Codex reasoning summaries as Anthropic thinking blocks.
+ */
+const DUMMY_THINKING_SIGNATURE = "ErUB6hRrJQRAO5s7Qm7ILBQRQjKmWjqCgAIQAhABGkAaDAjKmWjqCg==";
+
 /** Format an Anthropic SSE event with named event type */
 function formatSSE(eventType: string, data: unknown): string {
   return `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -186,7 +200,7 @@ export async function* streamCodexToAnthropic(
         yield formatSSE("content_block_start", {
           type: "content_block_start",
           index: contentIndex,
-          content_block: { type: "thinking", thinking: "" },
+          content_block: { type: "thinking", thinking: "", signature: DUMMY_THINKING_SIGNATURE },
         });
         thinkingBlockStarted = true;
       }
@@ -431,7 +445,7 @@ export async function collectCodexToAnthropicResponse(
   const content: AnthropicContentBlock[] = [];
   // Thinking block comes first if requested and available
   if (wantThinking && fullReasoning) {
-    content.push({ type: "thinking", thinking: fullReasoning });
+    content.push({ type: "thinking", thinking: fullReasoning, signature: DUMMY_THINKING_SIGNATURE });
   }
   if (fullText) {
     content.push({ type: "text", text: fullText });
