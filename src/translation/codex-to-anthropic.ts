@@ -134,6 +134,15 @@ export async function* streamCodexToAnthropic(
 
   // Helper: close an open block and advance the index
   function* closeBlock(blockType: "thinking" | "text"): Generator<string> {
+    // Anthropic SDK accumulates the thinking signature from signature_delta events,
+    // not from content_block_start. Emit it here, before content_block_stop.
+    if (blockType === "thinking") {
+      yield formatSSE("content_block_delta", {
+        type: "content_block_delta",
+        index: contentIndex,
+        delta: { type: "signature_delta", signature: DUMMY_THINKING_SIGNATURE },
+      });
+    }
     yield formatSSE("content_block_stop", {
       type: "content_block_stop",
       index: contentIndex,
@@ -200,7 +209,7 @@ export async function* streamCodexToAnthropic(
         yield formatSSE("content_block_start", {
           type: "content_block_start",
           index: contentIndex,
-          content_block: { type: "thinking", thinking: "", signature: DUMMY_THINKING_SIGNATURE },
+          content_block: { type: "thinking", thinking: "" },
         });
         thinkingBlockStarted = true;
       }
