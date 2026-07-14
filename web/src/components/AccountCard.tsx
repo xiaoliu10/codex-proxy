@@ -489,7 +489,7 @@ export function AccountCard({ account, index, onDelete, proxies, onProxyChange, 
         </div>
       </div>
 
-      {/* Reset credits row — compact single line: label · count · button */}
+      {/* Reset credits row — compact single line: label · count · button (left-aligned) */}
       {onPrepareResetCredit && (
         <div class="flex items-center gap-2 mb-3 text-[0.78rem]">
           <span class="text-slate-500 dark:text-text-dim shrink-0">{t("resetCreditsLabel")}</span>
@@ -512,7 +512,7 @@ export function AccountCard({ account, index, onDelete, proxies, onProxyChange, 
             onClick={handleResetClick}
             data-testid="reset-credit-btn"
             disabled={!resetCanClick}
-            class={`ml-auto px-2.5 py-1 rounded-lg text-xs font-medium transition-colors shrink-0 ${
+            class={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors shrink-0 ${
               resetCanClick
                 ? "bg-primary-action text-white hover:bg-primary-action-hover shadow-sm"
                 : "bg-slate-100 dark:bg-border-dark text-slate-400 dark:text-text-dim cursor-not-allowed"
