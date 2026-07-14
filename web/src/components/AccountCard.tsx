@@ -489,57 +489,47 @@ export function AccountCard({ account, index, onDelete, proxies, onProxyChange, 
         </div>
       </div>
 
-      {/* Reset credits row — between header actions and stats */}
+      {/* Reset credits row — compact single line: label · count · button */}
       {onPrepareResetCredit && (
-        <div class="flex items-center justify-between gap-2 mb-3 px-0.5 text-[0.78rem]">
-          <span class="text-slate-500 dark:text-text-dim flex items-center gap-1.5">
-            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-            </svg>
-            <span>{t("resetCreditsLabel")}</span>
+        <div class="flex items-center gap-2 mb-3 text-[0.78rem]">
+          <span class="text-slate-500 dark:text-text-dim shrink-0">{t("resetCreditsLabel")}</span>
+          <span class={`font-semibold tabular-nums shrink-0 ${resetCount != null && resetCount > 0 ? "text-primary" : "text-slate-400 dark:text-text-dim"}`}>
+            {resetDetailsLoading ? (
+              <span class="inline-flex items-center gap-1 text-slate-400 dark:text-text-dim font-normal">
+                <svg class="size-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10" stroke-dasharray="31.4 31.4" stroke-linecap="round" />
+                </svg>
+              </span>
+            ) : resetUnsupported ? (
+              t("resetCreditsUnsupported")
+            ) : resetCount == null ? (
+              "—"
+            ) : (
+              resetCount
+            )}
           </span>
-          <span class="flex items-center gap-2">
-            <span class={`font-medium tabular-nums ${resetCount != null && resetCount > 0 ? "text-primary" : "text-slate-400 dark:text-text-dim"}`}>
-              {resetDetailsLoading ? (
-                <span class="inline-flex items-center gap-1 text-slate-400 dark:text-text-dim">
-                  <svg class="size-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10" stroke-dasharray="31.4 31.4" stroke-linecap="round" />
-                  </svg>
-                  ...
-                </span>
-              ) : resetUnsupported ? (
-                t("resetCreditsUnsupported")
-              ) : resetCount == null ? (
-                "—"
-              ) : (
-                resetCount
-              )}
-            </span>
-            <button
-              onClick={handleResetClick}
-              data-testid="reset-credit-btn"
-              disabled={!resetCanClick}
-              class={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                resetCanClick
-                  ? "bg-primary-action text-white hover:bg-primary-action-hover shadow-sm"
-                  : "bg-slate-100 dark:bg-border-dark text-slate-400 dark:text-text-dim cursor-not-allowed"
-              }`}
-              title={pendingRetry ? t("resetCreditsRetryHint") : t("resetCreditsBtnHint")}
-            >
-              {resetConsuming ? (
-                <span class="inline-flex items-center gap-1">
-                  <svg class="size-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10" stroke-dasharray="31.4 31.4" stroke-linecap="round" />
-                  </svg>
-                  {t("resetCreditsConsuming")}
-                </span>
-              ) : resetDetailsLoading ? (
-                "..."
-              ) : (
-                resetButtonLabel
-              )}
-            </button>
-          </span>
+          <button
+            onClick={handleResetClick}
+            data-testid="reset-credit-btn"
+            disabled={!resetCanClick}
+            class={`ml-auto px-2.5 py-1 rounded-lg text-xs font-medium transition-colors shrink-0 ${
+              resetCanClick
+                ? "bg-primary-action text-white hover:bg-primary-action-hover shadow-sm"
+                : "bg-slate-100 dark:bg-border-dark text-slate-400 dark:text-text-dim cursor-not-allowed"
+            }`}
+            title={pendingRetry ? t("resetCreditsRetryHint") : t("resetCreditsBtnHint")}
+          >
+            {resetConsuming ? (
+              <span class="inline-flex items-center gap-1">
+                <svg class="size-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10" stroke-dasharray="31.4 31.4" stroke-linecap="round" />
+                </svg>
+                {t("resetCreditsConsuming")}
+              </span>
+            ) : (
+              resetButtonLabel
+            )}
+          </button>
         </div>
       )}
 
