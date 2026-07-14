@@ -26,6 +26,7 @@ import {
   parseAccountImportPayload,
   parseAccountImportText,
 } from "../services/account-transfer-formats.js";
+import { AccountResetCreditService } from "../services/account-reset-credits.js";
 
 const BatchIdsSchema = z.object({ ids: z.array(z.string()).min(1) });
 const HealthCheckSchema = z.object({
@@ -35,6 +36,15 @@ const HealthCheckSchema = z.object({
 }).optional();
 const BatchStatusSchema = z.object({ ids: z.array(z.string()).min(1), status: z.enum(["active", "disabled"]) });
 const LabelSchema = z.object({ label: z.string().max(64).nullable() });
+
+/** UUID validation for the idempotency key required by consume/reset-credits. */
+const UuidSchema = z.string().uuid();
+
+const ConsumeResetCreditSchema = z.object({
+  redeem_request_id: UuidSchema,
+  credit_id: z.string().min(1).optional(),
+});
+
 export function createAccountRoutes(pool: AccountPool, scheduler: RefreshScheduler, cookieJar?: CookieJar, proxyPool?: ProxyPool): Hono {
   const app = new Hono();
   const importSvc = new AccountImportService(pool, scheduler, {
@@ -69,6 +79,10 @@ export function createAccountRoutes(pool: AccountPool, scheduler: RefreshSchedul
     clearSchedule: (id) => scheduler.clearOne(id),
     clearCookies: cookieJar ? (id) => cookieJar.clear(id) : undefined,
     clearWarnings,
+  });
+  const resetCreditsSvc = new AccountResetCreditService(pool, {
+    cookieJar,
+    proxyPool: proxyPool ?? null,
   });
 
   app.get("/auth/accounts/login", (c) => {
@@ -183,6 +197,91 @@ export function createAccountRoutes(pool: AccountPool, scheduler: RefreshSchedul
   app.post("/auth/accounts/:id/reset-usage", (c) => {
     if (!pool.resetUsage(c.req.param("id"))) { c.status(404); return c.json({ error: "Account not found" }); }
     return c.json({ success: true });
+  });
+
+  // ── Reset credits ───────────────────────────────────────────
+
+  app.get("/auth/accounts/:id/reset-credits", async (c) => {
+    const id = c.req.param("id");
+    const validation = resetCreditsSvc.validateAccount(id);
+    if (!validation.ok) {
+      c.status(validation.httpStatus as 404 | 409);
+      return c.json({ error: validation.code });
+    }
+    try {
+      const details = await resetCreditsSvc.getDetails(id);
+      return c.json({
+        account_id: id,
+        available_count: details.available_count,
+        credits: details.credits,
+        recommended_credit_id: details.recommended_credit_id,
+        fetched_at: details.fetched_at,
+      });
+    } catch (err) {
+      if (isTokenInvalidError(err)) {
+        pool.markStatus(id, "expired");
+      }
+      // NOTE: do NOT call isBanError here. A 403 from the reset-credit endpoint
+      // commonly means the account/plan has no reset entitlement — that is a
+      // healthy-account permission issue, not a ban. Treating it as a ban would
+      // evict a working account from the entire proxy pool.
+      const status = err instanceof Error && "status" in err
+        ? (err as { status: number }).status
+        : 0;
+      if (status === 404 || status === 501) {
+        c.status(501);
+        return c.json({ error: "reset_credits_unsupported", detail: "Upstream reset credits endpoint is not available." });
+      }
+      if (status === 403) {
+        c.status(403);
+        return c.json({ error: "reset_credit_forbidden", detail: "Account is not entitled to rate-limit reset credits." });
+      }
+      c.status(502);
+      const detail = err instanceof Error ? err.message : String(err);
+      return c.json({ error: "reset_credits_lookup_failed", detail });
+    }
+  });
+
+  app.post("/auth/accounts/:id/reset-credits/consume", async (c) => {
+    const id = c.req.param("id");
+    let body: unknown;
+    try { body = await c.req.json(); } catch {
+      c.status(400);
+      return c.json({ error: "invalid_request", detail: "Malformed JSON request body" });
+    }
+    const parsed = ConsumeResetCreditSchema.safeParse(body);
+    if (!parsed.success) {
+      c.status(400);
+      return c.json({ error: "invalid_request", detail: parsed.error.issues });
+    }
+
+    const validation = resetCreditsSvc.validateAccount(id);
+    if (!validation.ok) {
+      c.status(validation.httpStatus as 404 | 409);
+      return c.json({ error: validation.code });
+    }
+
+    const result = await resetCreditsSvc.consume(id, {
+      redeem_request_id: parsed.data.redeem_request_id,
+      credit_id: parsed.data.credit_id,
+    });
+
+    // Map structured error codes to HTTP status. Known business outcomes
+    // (reset/already_redeemed/nothing_to_reset/no_credit) stay 200 — they are
+    // confirmed responses from the upstream backend.
+    if (result.code === "reset_outcome_unknown") {
+      c.status(502);
+    }
+    // account_not_found / account_not_eligible / reset_in_progress are
+    // already non-200 via makeConflictResult/validateAccount paths above; the
+    // service returns them only when validation passed earlier, so map them
+    // defensively here too.
+    else if (result.code === "account_not_found") { c.status(404); }
+    else if (result.code === "account_not_eligible" || result.code === "reset_in_progress") {
+      c.status(409);
+    }
+
+    return c.json(result);
   });
 
   app.get("/auth/accounts/:id/quota", async (c) => {

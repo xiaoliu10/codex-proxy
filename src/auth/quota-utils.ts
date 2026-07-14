@@ -103,5 +103,28 @@ export function toQuota(usage: CodexUsageResponse): CodexQuota {
       ? rateLimitsByLimitId
       : null,
     credits: normalizeCredits(usage.credits),
+    rate_limit_reset_credits: normalizeResetCredits(usage.rate_limit_reset_credits),
   };
+}
+
+/**
+ * Normalize the /wham/usage reset-credit summary into the three-state cached
+ * representation:
+ * - valid non-negative count → { available_count }
+ * - explicit null → null (account has no reset entitlement)
+ * - absent → undefined (unknown; caller preserves prior value)
+ */
+function normalizeResetCredits(
+  raw: { available_count: number } | null | undefined,
+): { available_count: number } | null | undefined {
+  if (raw == null) {
+    // undefined (field absent) vs null (explicit "not entitled") both pass
+    // through here; the distinction is preserved by the input type.
+    return raw as null | undefined;
+  }
+  const count = raw.available_count;
+  if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
+    return undefined;
+  }
+  return { available_count: Math.trunc(count) };
 }

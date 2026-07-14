@@ -308,6 +308,69 @@ export function useAccounts() {
     }
   }, [patchLocal]);
 
+  const refreshAccountQuota = useCallback(async (id: string): Promise<void> => {
+    const encoded = encodeURIComponent(id);
+    const resp = await fetch(`/auth/accounts/${encoded}/quota`);
+    if (!resp.ok) {
+      console.warn(`[useAccounts] Failed to refresh quota for account ${id}: ${resp.status}`);
+    }
+    await loadAccounts();
+  }, [loadAccounts]);
+
+  // Merge only the reset-credit summary into the cached quota, preserving the
+  // rest of the quota (rate-limit windows, credits, etc.). Replacing the whole
+  // quota object would wipe those fields until the next poll.
+  const patchResetCreditsLocal = useCallback((id: string, availableCount: number | null) => {
+    setList((prev) => prev.map((a) => {
+      if (a.id !== id) return a;
+      const prevQuota = a.quota ?? {};
+      return {
+        ...a,
+        quota: {
+          ...prevQuota,
+          rate_limit_reset_credits:
+            availableCount == null ? null : { available_count: availableCount },
+        },
+      };
+    }));
+  }, []);
+
+  const prepareResetCredit = useCallback(async (id: string) => {
+    const resp = await fetch(`/auth/accounts/${encodeURIComponent(id)}/reset-credits`);
+    if (!resp.ok) {
+      const data = await resp.json();
+      throw new Error(data.error || data.detail || "Failed to fetch reset credits");
+    }
+    const data = await resp.json();
+    // Patch local count before the next poll round refreshes the list
+    patchResetCreditsLocal(id, data.available_count ?? null);
+    return data as import("../../shared/types.js").ResetCreditsDetailsResponse;
+  }, [patchResetCreditsLocal]);
+
+  const consumeResetCredit = useCallback(async (
+    id: string,
+    request: { redeem_request_id: string; credit_id?: string },
+  ) => {
+    const resp = await fetch(`/auth/accounts/${encodeURIComponent(id)}/reset-credits/consume`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    const data = await resp.json();
+    // Patch the count locally so it reads accurately before the next refresh.
+    // Only patch a confirmed count (reset/already_redeemed refresh succeeded);
+    // for unknown outcomes the count is not authoritative — leave it stale so
+    // the retry button stays enabled via pendingRetry.
+    if ((data.success || data.code === "already_redeemed" || data.code === "no_credit") &&
+        typeof data.available_count === "number") {
+      patchResetCreditsLocal(id, data.available_count);
+    }
+    if (data.success || data.code === "already_redeemed") {
+      await loadAccounts();
+    }
+    return data as import("../../shared/types.js").ResetCreditsConsumeResponse;
+  }, [loadAccounts, patchResetCreditsLocal]);
+
   return {
     list,
     loading,
@@ -318,6 +381,9 @@ export function useAccounts() {
     addError,
     persistenceHealth,
     refresh: loadAccounts,
+    refreshAccountQuota,
+    prepareResetCredit,
+    consumeResetCredit,
     patchLocal,
     startAdd,
     cancelAdd,

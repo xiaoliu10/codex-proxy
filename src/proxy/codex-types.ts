@@ -188,6 +188,69 @@ export interface CodexUsageResponse {
   spend_control?: CodexUsageSpendControl | null;
   rate_limit_reached_type?: CodexUsageRateLimitReachedType | null;
   promo?: unknown;
+  /**
+   * Banked manual rate-limit reset credits available to consume. Present on
+   * eligible Plus/Pro accounts; null when the backend explicitly reports the
+   * account has no reset entitlement, undefined when the field is absent
+   * (older cache / passive header path that doesn't carry it).
+   */
+  rate_limit_reset_credits?: { available_count: number } | null;
+}
+
+/**
+ * Summary of banked reset credits embedded in /wham/usage.
+ * `available_count` is the authoritative total — the credits[] list returned
+ * by the dedicated details endpoint may be truncated, so never substitute
+ * `credits.length` for it.
+ */
+export interface CodexUsageRateLimitResetCredits {
+  available_count: number;
+}
+
+/** A single banked rate-limit reset credit (GET /wham/rate-limit-reset-credits). */
+export interface CodexRateLimitResetCredit {
+  id: string;
+  reset_type?: string | null;
+  /** "available" | "redeeming" | "redeemed" | future variants. */
+  status?: string | null;
+  granted_at?: string | null;
+  /** ISO-8601; null/absent when the credit does not expire. */
+  expires_at?: string | null;
+  title?: string | null;
+  description?: string | null;
+}
+
+export interface CodexRateLimitResetCreditsResponse {
+  credits: CodexRateLimitResetCredit[];
+  available_count: number;
+}
+
+/** POST /wham/rate-limit-reset-credits/consume request body. */
+export interface CodexConsumeResetCreditRequest {
+  /** Client-generated UUID idempotency key; reuse across retries of the same logical redemption. */
+  redeem_request_id: string;
+  /** Optional opaque credit id; omit to let the backend pick the next available credit. */
+  credit_id?: string;
+}
+
+/**
+ * POST consume outcome code. The four known values map to HTTP 200 business
+ * results; unknown strings must NOT be treated as success.
+ */
+export type CodexConsumeResetCreditCode =
+  | "reset"
+  | "nothing_to_reset"
+  | "no_credit"
+  | "already_redeemed"
+  | (string & {}); // forward-compatible: preserve unknown codes for the caller to decide
+
+/** POST /wham/rate-limit-reset-credits/consume response body. */
+export interface CodexConsumeResetCreditResponse {
+  code: CodexConsumeResetCreditCode;
+  /** Number of windows the backend reset (typically 2 for Plus/Pro: weekly + 5h). */
+  windows_reset?: number;
+  /** Backend may echo the consumed credit; clients should not depend on it. */
+  credit?: { id?: string } | null;
 }
 
 export class CodexApiError extends Error {

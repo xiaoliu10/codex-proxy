@@ -182,6 +182,9 @@ function Dashboard() {
                 onImport={accounts.importAccounts}
                 onToggleStatus={accounts.toggleStatus}
                 onUpdateLabel={accounts.updateLabel}
+                onRefreshQuota={accounts.refreshAccountQuota}
+                onPrepareResetCredit={accounts.prepareResetCredit}
+                onConsumeResetCredit={accounts.consumeResetCredit}
               />
               <ProxyPool proxies={proxies} />
             </div>

@@ -10,7 +10,9 @@ import {
   formatWindowDuration,
 } from "../../../shared/utils/format";
 import type { Account, AccountQuotaWindow, ProxyEntry } from "../../../shared/types";
+import type { ResetCreditsDetailsResponse, ResetCreditsConsumeResponse } from "../../../shared/types";
 import { derivedStatus } from "../lib/accountStatus";
+import { ResetCreditDialog } from "./ResetCreditDialog";
 
 /** Default credit→USD rate matching the config schema default (1000 credits = $40).
  *  Surfacing this through a settings hook lives in a follow-up PR. */
@@ -93,9 +95,11 @@ interface AccountCardProps {
   onRefreshQuota?: (id: string) => Promise<void>;
   onToggleStatus?: (id: string, currentStatus: string) => Promise<string | null>;
   onUpdateLabel?: (id: string, label: string | null) => Promise<string | null>;
+  onPrepareResetCredit?: (id: string) => Promise<unknown>;
+  onConsumeResetCredit?: (id: string, request: { redeem_request_id: string; credit_id?: string }) => Promise<unknown>;
 }
 
-export function AccountCard({ account, index, onDelete, proxies, onProxyChange, selected, onToggleSelect, onRefreshQuota, onToggleStatus, onUpdateLabel }: AccountCardProps) {
+export function AccountCard({ account, index, onDelete, proxies, onProxyChange, selected, onToggleSelect, onRefreshQuota, onToggleStatus, onUpdateLabel, onPrepareResetCredit, onConsumeResetCredit }: AccountCardProps) {
   const t = useT();
   const { lang } = useI18n();
   const email = account.email || "Unknown";
@@ -254,6 +258,136 @@ export function AccountCard({ account, index, onDelete, proxies, onProxyChange, 
     if (e.key === "Escape") setEditingLabel(false);
   }, [handleLabelSave]);
 
+  // ── Reset credits ────────────────────────────────────────────
+
+  const resetCredits = account.quota?.rate_limit_reset_credits;
+  const resetCountAvailable =
+    resetCredits && typeof resetCredits.available_count === "number" && resetCredits.available_count >= 0;
+  const resetCount = resetCountAvailable ? resetCredits!.available_count : null;
+  // null summary → the account is explicitly not entitled; undefined → unknown.
+  const resetUnsupported = resetCredits === null;
+  const canResetAccountStatus =
+    account.status === "active" || account.status === "quota_exhausted";
+
+  const [resetDetailsLoading, setResetDetailsLoading] = useState(false);
+  const [resetConsuming, setResetConsuming] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetDetails, setResetDetails] = useState<ResetCreditsDetailsResponse | null>(null);
+  const [resetMessage, setResetMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  const [pendingRetry, setPendingRetry] = useState<{ redeemRequestId: string; creditId: string | null } | null>(null);
+
+  const showResetFeedback = useCallback((text: string, error = false) => {
+    setResetMessage({ text, error });
+    setTimeout(() => setResetMessage(null), 6000);
+  }, []);
+
+  const handleResetClick = useCallback(async () => {
+    if (!onPrepareResetCredit) return;
+    // Retry of an unknown outcome reuses the pending idempotency key — do NOT
+    // re-fetch details (that could pick a different credit and double-consume).
+    if (pendingRetry) {
+      setResetDialogOpen(true);
+      return;
+    }
+    setResetDetailsLoading(true);
+    setResetMessage(null);
+    try {
+      const details = await onPrepareResetCredit(account.id) as ResetCreditsDetailsResponse;
+      if ((details as ResetCreditsDetailsResponse).available_count != null) {
+        setResetDetails(details as ResetCreditsDetailsResponse);
+      }
+      const count = (details as ResetCreditsDetailsResponse).available_count ?? 0;
+      if (count > 0) {
+        setResetDialogOpen(true);
+      } else {
+        showResetFeedback(t("resetCreditsNoneAvailable"), true);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showResetFeedback(msg, true);
+    } finally {
+      setResetDetailsLoading(false);
+    }
+  }, [account.id, onPrepareResetCredit, pendingRetry, showResetFeedback, t]);
+
+  const handleResetConfirm = useCallback(async () => {
+    if (!onConsumeResetCredit) return;
+    // Build the pending intent BEFORE sending POST. A network drop / JSON
+    // parse error after the request leaves the browser must NOT discard the
+    // idempotency key — otherwise the next click generates a new UUID and can
+    // consume a second credit. Retry reuses this exact key + credit_id.
+    const redeemRequestId = pendingRetry?.redeemRequestId ?? crypto.randomUUID();
+    // Reuse the exact credit_id from the pending retry. For a fresh consume,
+    // use the prepared recommended credit; null/undefined means "let backend choose".
+    const creditId =
+      pendingRetry?.creditId !== undefined
+        ? (pendingRetry!.creditId ?? undefined)
+        : (resetDetails?.recommended_credit_id ?? undefined);
+    setPendingRetry({ redeemRequestId, creditId: creditId ?? null });
+    setResetConsuming(true);
+    setResetDialogOpen(false);
+    setResetMessage(null);
+    try {
+      const result = await onConsumeResetCredit(account.id, {
+        redeem_request_id: redeemRequestId,
+        credit_id: creditId,
+      }) as ResetCreditsConsumeResponse;
+
+      if (result.success || result.code === "already_redeemed") {
+        setPendingRetry(null);
+        if (result.quota_verify_required && result.refresh.usage === "failed") {
+          showResetFeedback(
+            `${result.idempotent ? t("resetCreditsAlreadyRedeemed") : t("resetCreditsSuccess")} ${t("resetCreditsQuotaPendingVerify")}`,
+            false,
+          );
+        } else {
+          showResetFeedback(
+            result.idempotent ? t("resetCreditsAlreadyRedeemed") : t("resetCreditsSuccess"),
+            false,
+          );
+        }
+      } else if (result.code === "nothing_to_reset") {
+        setPendingRetry(null);
+        showResetFeedback(t("resetCreditsNothingToReset"), false);
+      } else if (result.code === "no_credit") {
+        setPendingRetry(null);
+        showResetFeedback(t("resetCreditsNoCredit"), false);
+      } else if (result.code === "reset_outcome_unknown") {
+        // pendingRetry already set above with the same key — keep it.
+        showResetFeedback(t("resetCreditsOutcomeUnknown"), true);
+      } else {
+        // Unknown upstream code: treat as outcome-unknown to force safe retry.
+        showResetFeedback(t("resetCreditsOutcomeUnknown"), true);
+      }
+    } catch (err) {
+      // Network/parse failure AFTER the request may have reached upstream.
+      // Preserve pendingRetry so the next click reuses the same key.
+      const msg = err instanceof Error ? err.message : String(err);
+      showResetFeedback(`${t("resetCreditsOutcomeUnknown")} (${msg})`, true);
+    } finally {
+      setResetConsuming(false);
+    }
+  }, [account.id, onConsumeResetCredit, pendingRetry, resetDetails, showResetFeedback, t]);
+
+  const handleResetCancel = useCallback(() => {
+    setResetDialogOpen(false);
+    // Do not clear pendingRetry — it is only cleared on a confirmed outcome.
+  }, []);
+
+  // When a pending retry exists, the button stays clickable regardless of the
+  // cached count (the authoritative count may be stale after an unknown outcome).
+  const resetCanClick =
+    onPrepareResetCredit &&
+    canResetAccountStatus &&
+    !resetConsuming && !resetDetailsLoading &&
+    (pendingRetry != null || (resetCount != null && resetCount > 0));
+  const resetButtonLabel = pendingRetry
+    ? t("resetCreditsRetry")
+    : t("resetCreditsBtn");
+  const creditTitleForDialog = resetDetails?.recommended_credit_id
+    ? resetDetails.credits.find((c) => c.id === resetDetails.recommended_credit_id)?.title ?? resetDetails.recommended_credit_id
+    : null;
+
   return (
     <div class={`bg-white dark:bg-card-dark border rounded-xl p-4 shadow-sm hover:shadow-md transition-all ${selected ? "border-primary ring-1 ring-primary/30" : "border-gray-200 dark:border-border-dark hover:border-primary/30 dark:hover:border-primary/50"}`}>
       {/* Header */}
@@ -354,6 +488,80 @@ export function AccountCard({ account, index, onDelete, proxies, onProxyChange, 
           </button>
         </div>
       </div>
+
+      {/* Reset credits row — between header actions and stats */}
+      {onPrepareResetCredit && (
+        <div class="flex items-center justify-between gap-2 mb-3 px-0.5 text-[0.78rem]">
+          <span class="text-slate-500 dark:text-text-dim flex items-center gap-1.5">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            <span>{t("resetCreditsLabel")}</span>
+          </span>
+          <span class="flex items-center gap-2">
+            <span class={`font-medium tabular-nums ${resetCount != null && resetCount > 0 ? "text-primary" : "text-slate-400 dark:text-text-dim"}`}>
+              {resetDetailsLoading ? (
+                <span class="inline-flex items-center gap-1 text-slate-400 dark:text-text-dim">
+                  <svg class="size-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" stroke-dasharray="31.4 31.4" stroke-linecap="round" />
+                  </svg>
+                  ...
+                </span>
+              ) : resetUnsupported ? (
+                t("resetCreditsUnsupported")
+              ) : resetCount == null ? (
+                "—"
+              ) : (
+                resetCount
+              )}
+            </span>
+            <button
+              onClick={handleResetClick}
+              data-testid="reset-credit-btn"
+              disabled={!resetCanClick}
+              class={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                resetCanClick
+                  ? "bg-primary-action text-white hover:bg-primary-action-hover shadow-sm"
+                  : "bg-slate-100 dark:bg-border-dark text-slate-400 dark:text-text-dim cursor-not-allowed"
+              }`}
+              title={pendingRetry ? t("resetCreditsRetryHint") : t("resetCreditsBtnHint")}
+            >
+              {resetConsuming ? (
+                <span class="inline-flex items-center gap-1">
+                  <svg class="size-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" stroke-dasharray="31.4 31.4" stroke-linecap="round" />
+                  </svg>
+                  {t("resetCreditsConsuming")}
+                </span>
+              ) : resetDetailsLoading ? (
+                "..."
+              ) : (
+                resetButtonLabel
+              )}
+            </button>
+          </span>
+        </div>
+      )}
+
+      {/* Reset result feedback */}
+      {resetMessage && (
+        <div class={`mb-3 px-3 py-1.5 rounded-md text-xs font-medium ${
+          resetMessage.error
+            ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/30"
+            : "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/30"
+        }`}>
+          {resetMessage.text}
+        </div>
+      )}
+
+      <ResetCreditDialog
+        open={resetDialogOpen}
+        availableCount={resetCount ?? 0}
+        creditTitle={creditTitleForDialog}
+        busy={resetConsuming}
+        onConfirm={handleResetConfirm}
+        onCancel={handleResetCancel}
+      />
 
       {/* Stats */}
       <div class="space-y-2">

@@ -24,6 +24,7 @@ import { normalizeOpenAISubagent, OPENAI_SUBAGENT_HEADER } from "./openai-subage
 export type { WsPoolContext };
 import { parseSSEBlock, parseSSEStream } from "./codex-sse.js";
 import { fetchUsage } from "./codex-usage.js";
+import { fetchResetCredits, consumeResetCredit } from "./codex-reset-credits.js";
 import { fetchModels, probeEndpoint as probeEndpointFn } from "./codex-models.js";
 import type { CookieJar } from "./cookie-jar.js";
 import type { BackendModelEntry } from "../models/model-store.js";
@@ -53,6 +54,12 @@ export type {
   CodexUsageCredits,
   CodexUsageSpendControl,
   CodexUsageRateLimitReachedType,
+  CodexUsageRateLimitResetCredits,
+  CodexRateLimitResetCredit,
+  CodexRateLimitResetCreditsResponse,
+  CodexConsumeResetCreditRequest,
+  CodexConsumeResetCreditResponse,
+  CodexConsumeResetCreditCode,
 } from "./codex-types.js";
 
 // Re-export SSE utilities for consumers that used them via CodexApi
@@ -66,6 +73,9 @@ import {
   type CodexCompactResponse,
   type CodexSSEEvent,
   type CodexUsageResponse,
+  type CodexRateLimitResetCreditsResponse,
+  type CodexConsumeResetCreditRequest,
+  type CodexConsumeResetCreditResponse,
 } from "./codex-types.js";
 
 export class CodexApi {
@@ -212,7 +222,35 @@ export class CodexApi {
     const headers = this.applyHeaders(
       buildHeaders(this.token, this.accountId),
     );
-    return fetchUsage(headers, this.proxyUrl);
+    return fetchUsage(headers, this.proxyUrl, this.resolveBaseUrl(), this.resolveTransport());
+  }
+
+  /** List banked rate-limit reset credits for this account. */
+  async getResetCredits(): Promise<CodexRateLimitResetCreditsResponse> {
+    const headers = this.applyHeaders(
+      buildHeaders(this.token, this.accountId),
+    );
+    return fetchResetCredits(headers, this.proxyUrl, this.resolveBaseUrl(), this.resolveTransport());
+  }
+
+  /**
+   * Consume one rate-limit reset credit. The caller owns the idempotency key:
+   * pass the same redeem_request_id when retrying an unknown outcome. This
+   * method performs exactly one POST — no fallback, no automatic retry.
+   */
+  async consumeResetCredit(
+    request: CodexConsumeResetCreditRequest,
+  ): Promise<CodexConsumeResetCreditResponse> {
+    const headers = this.applyHeaders(
+      buildHeadersWithContentType(this.token, this.accountId),
+    );
+    return consumeResetCredit(
+      headers,
+      request,
+      this.proxyUrl,
+      this.resolveBaseUrl(),
+      this.resolveTransport(),
+    );
   }
 
   /**

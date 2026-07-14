@@ -415,6 +415,26 @@ export const translations = {
     persistDisabledBody:
       "accounts.json failed to load and was quarantined (data/accounts.json.corrupt-*.bak). " +
       "Changes in this session live in memory only. Restore a healthy file and restart to resume auto-save.",
+    // Reset credits
+    resetCreditsLabel: "Manual Resets",
+    resetCreditsBtn: "Reset",
+    resetCreditsBtnHint: "Consume a reset credit to reset rate limits now",
+    resetCreditsRetry: "Retry Reset",
+    resetCreditsRetryHint: "The previous result is unknown; retry reuses the same idempotency key to avoid double consumption",
+    resetCreditsConsuming: "Resetting...",
+    resetCreditsUnsupported: "Unavailable",
+    resetCreditsNoneAvailable: "No reset credits available for this account.",
+    resetCreditsSuccess: "Reset successful! Remaining credits updated.",
+    resetCreditsAlreadyRedeemed: "Request already processed. Status synced.",
+    resetCreditsNothingToReset: "No eligible rate-limit windows to reset. No credit consumed.",
+    resetCreditsNoCredit: "No reset credits available for this account. Count synced.",
+    resetCreditsOutcomeUnknown: "Reset outcome unknown. Click Retry to check — the same request ID will be reused to avoid double consumption.",
+    resetCreditsQuotaPendingVerify: "Quota will sync on the next verification pass.",
+    resetCreditsDialogTitle: "Confirm Reset",
+    resetCreditsConfirm: "This will consume 1 manual reset credit to reset your rate limits. Continue?",
+    resetCreditsConfirmWithTitle: "This will consume 1 manual reset credit: {title}. Continue?",
+    resetCreditsConfirmBtn: "Yes, Use Reset",
+    resetCreditsAvailable: "Available",
   },
   zh: {
     serverOnline: "\u670d\u52a1\u8fd0\u884c\u4e2d",
@@ -835,6 +855,26 @@ export const translations = {
     persistDisabledBody:
       "accounts.json 加载失败，原文件已隔离到 data/accounts.json.corrupt-*.bak。" +
       "本次会话的改动仅保存在内存中。请恢复一份可用的 accounts.json 并重启应用以恢复自动保存。",
+    // 重置用量额度
+    resetCreditsLabel: "手动重置次数",
+    resetCreditsBtn: "重置",
+    resetCreditsBtnHint: "消耗一次重置额度，立即重置速率限制",
+    resetCreditsRetry: "重试重置",
+    resetCreditsRetryHint: "上次结果未知；重试会复用同一幂等键，避免重复消耗",
+    resetCreditsConsuming: "重置中…",
+    resetCreditsUnsupported: "不可用",
+    resetCreditsNoneAvailable: "该账号没有可用的重置额度。",
+    resetCreditsSuccess: "重置成功！已更新剩余次数。",
+    resetCreditsAlreadyRedeemed: "请求已处理，状态已同步。",
+    resetCreditsNothingToReset: "当前没有可重置的速率限制窗口，未消耗额度。",
+    resetCreditsNoCredit: "该账号没有可用的重置额度，次数已同步。",
+    resetCreditsOutcomeUnknown: "重置结果未知。点击重试确认——会复用同一请求 ID，避免重复消耗。",
+    resetCreditsQuotaPendingVerify: "额度将在下一次验证时同步。",
+    resetCreditsDialogTitle: "确认重置",
+    resetCreditsConfirm: "此操作将消耗 1 次手动重置额度以重置速率限制。是否继续？",
+    resetCreditsConfirmWithTitle: "此操作将消耗 1 次手动重置额度：{title}。是否继续？",
+    resetCreditsConfirmBtn: "确认重置",
+    resetCreditsAvailable: "可用",
   },
 } as const;
 

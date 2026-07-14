@@ -234,6 +234,28 @@ export class AccountPool {
     return this.registry.resetUsage(entryId);
   }
 
+  /** Update only the reset-credit count without touching the rest of cachedQuota. */
+  updateResetCreditSummary(
+    entryId: string,
+    summary: { available_count: number } | null,
+  ): void {
+    this.registry.updateResetCreditSummary(entryId, summary);
+  }
+
+  /**
+   * After a successful manual reset (consume outcome `reset` / `already_redeemed`),
+   * clear cached rate-limit locks and mark the account dirty for upstream
+   * verification. Also clears lifecycle locks and WS pool eviction.
+   */
+  invalidateQuotaAfterManualReset(entryId: string): boolean {
+    const ok = this.registry.invalidateQuotaAfterManualReset(entryId);
+    if (ok) {
+      this.lifecycle.clearLock(entryId);
+      this.evictWsPool(entryId);
+    }
+    return ok;
+  }
+
   // ── Query ─────────────────────────────────────────────────────────
 
   getAccounts(): AccountInfo[] {

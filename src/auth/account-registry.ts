@@ -55,6 +55,19 @@ function resetExpiredQuotaWindow(
   return true;
 }
 
+/**
+ * Clear the limit_reached exclusion marker on a cached quota window without
+ * inventing a new used_percent or reset_at. After a manual reset we don't yet
+ * know the upstream windows, so leave them for the dirty-verification pass to
+ * refill; we only need to stop hasReachedCachedQuota() from excluding the
+ * account.
+ */
+function clearLimitReached(quotaWindow: { limit_reached?: boolean } | null | undefined): void {
+  if (quotaWindow && "limit_reached" in quotaWindow) {
+    (quotaWindow as { limit_reached: boolean }).limit_reached = false;
+  }
+}
+
 export class AccountRegistry {
   private accounts: Map<string, AccountEntry> = new Map();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -479,14 +492,124 @@ export class AccountRegistry {
     // The passive header-driven path (rateLimitToQuota in proxy-rate-limit.ts)
     // does not carry credit balance — only /codex/usage body (toQuota) does.
     // Without this merge, every /codex/responses call would wipe credits.
+    let next: CodexQuota;
     if (quota.credits == null && entry.cachedQuota?.credits != null) {
-      entry.cachedQuota = { ...quota, credits: entry.cachedQuota.credits };
+      next = { ...quota, credits: entry.cachedQuota.credits };
     } else {
-      entry.cachedQuota = quota;
+      next = quota;
     }
+    // The passive header path never carries reset-credit summary; preserve the
+    // last known summary so the dashboard keeps showing the count between polls.
+    // A full /wham/usage response carries `undefined` only when the field was
+    // absent (older cache), and an explicit `null` means "not entitled" — both
+    // of those should win over the prior value.
+    if (
+      next.rate_limit_reset_credits === undefined &&
+      entry.cachedQuota?.rate_limit_reset_credits !== undefined
+    ) {
+      next = { ...next, rate_limit_reset_credits: entry.cachedQuota.rate_limit_reset_credits };
+    }
+    entry.cachedQuota = next;
     entry.quotaFetchedAt = new Date().toISOString();
     entry.quotaVerifyRequired = false; // Reset the dirty flag on fresh update
     this.schedulePersist();
+  }
+
+  /**
+   * Update only the reset-credit summary without touching the rest of
+   * cachedQuota. Used after a details/consume call so the count reflects
+   * upstream reality without a full usage round-trip.
+   */
+  updateResetCreditSummary(
+    entryId: string,
+    summary: { available_count: number } | null,
+  ): void {
+    const entry = this.accounts.get(entryId);
+    if (!entry) return;
+    const quota = entry.cachedQuota ?? {
+      plan_type: entry.planType ?? "unknown",
+      rate_limit: {
+        allowed: true,
+        limit_reached: false,
+        used_percent: null,
+        reset_at: null,
+        limit_window_seconds: entry.usage.limit_window_seconds ?? null,
+      },
+      secondary_rate_limit: null,
+      code_review_rate_limit: null,
+    };
+    entry.cachedQuota = {
+      ...quota,
+      rate_limit_reset_credits: summary == null
+        ? null
+        : { available_count: summary.available_count, fetched_at: new Date().toISOString() },
+    };
+    entry.quotaFetchedAt = entry.quotaFetchedAt ?? new Date().toISOString();
+    this.schedulePersist();
+  }
+
+  /**
+   * Locally clear cached rate-limit locks after a successful manual reset so
+   * the account is no longer excluded by hasReachedCachedQuota(). This does
+   * NOT fabricate a 0% usage or a fresh reset time — it marks the quota dirty
+   * (quotaVerifyRequired) so the next request/background refresher pulls the
+   * real windows from upstream.
+   *
+   * Only call this for confirmed `reset` / `already_redeemed` outcomes.
+   */
+  invalidateQuotaAfterManualReset(entryId: string): boolean {
+    const entry = this.accounts.get(entryId);
+    if (!entry) return false;
+
+    const quota: CodexQuota = entry.cachedQuota ?? {
+      plan_type: entry.planType ?? "unknown",
+      rate_limit: {
+        allowed: true,
+        limit_reached: false,
+        used_percent: null,
+        reset_at: null,
+        limit_window_seconds: entry.usage.limit_window_seconds ?? null,
+      },
+      secondary_rate_limit: null,
+      code_review_rate_limit: null,
+    };
+
+    clearLimitReached(quota.rate_limit);
+    clearLimitReached(quota.secondary_rate_limit);
+    clearLimitReached(quota.code_review_rate_limit);
+    if (quota.rate_limits_by_limit_id) {
+      for (const bucket of Object.values(quota.rate_limits_by_limit_id)) {
+        clearLimitReached(bucket);
+        clearLimitReached(bucket.secondary_rate_limit);
+      }
+    }
+    // Preserve the reset-credit summary; details refresh updates the count.
+    entry.cachedQuota = { ...quota };
+    entry.quotaVerifyRequired = true;
+
+    // Reset window counters (they belong to the now-reset windows) but keep
+    // lifetime totals intact. Also clear the stale window_reset_at so the
+    // next refreshStatus() pass doesn't zero the freshly-accumulated counters
+    // when the old reset time elapses; the next usage refresh repopulates it.
+    entry.usage.window_request_count = 0;
+    entry.usage.window_input_tokens = 0;
+    entry.usage.window_output_tokens = 0;
+    entry.usage.window_cached_tokens = 0;
+    entry.usage.window_image_input_tokens = 0;
+    entry.usage.window_image_output_tokens = 0;
+    entry.usage.window_image_request_count = 0;
+    entry.usage.window_image_request_failed_count = 0;
+    entry.usage.window_counters_reset_at = new Date().toISOString();
+    entry.usage.window_reset_at = null;
+
+    // A manually reset account is usable again; only revive the legacy
+    // quota_exhausted status — never reactivate disabled/expired/banned.
+    if (entry.status === "quota_exhausted") {
+      entry.status = "active";
+    }
+
+    this.schedulePersist();
+    return true;
   }
 
   syncRateLimitWindow(
