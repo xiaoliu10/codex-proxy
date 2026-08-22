@@ -90,7 +90,9 @@ export function isTokenInvalidError(err: unknown): boolean {
  *
  * Detects either:
  *  - structured `code: "previous_response_not_found"` in the error body, or
- *  - the human-readable "Previous response with id ... not found" message.
+ *  - the human-readable "Previous response with id ... not found" message, or
+ *  - the human-readable "Invalid `previous_response_id`." message (seen from
+ *    gpt-5.6 upstream accounts; same stale-chain condition, different wording).
  */
 export function isPreviousResponseNotFoundError(err: unknown): boolean {
   if (!isCodexLike(err)) return false;
@@ -103,7 +105,8 @@ export function isPreviousResponseNotFoundError(err: unknown): boolean {
   } catch { /* fall through to message check */ }
   const lower = (err.body + " " + err.message).toLowerCase();
   return lower.includes("previous_response_not_found")
-    || (lower.includes("previous response with id") && lower.includes("not found"));
+    || (lower.includes("previous response with id") && lower.includes("not found"))
+    || (lower.includes("invalid") && lower.includes("previous_response_id"));
 }
 
 /**

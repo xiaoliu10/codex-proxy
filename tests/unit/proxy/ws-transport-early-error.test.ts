@@ -149,6 +149,33 @@ describe("createWebSocketResponse — early-stream error rejection", () => {
     }
   });
 
+  it("rejects with CodexApiError(400) when first frame is 'Invalid previous_response_id' message", async () => {
+    // gpt-5.6 upstream reports stale previous_response_id with a generic
+    // invalid_request_error code and a human-readable message instead of the
+    // structured previous_response_not_found code. The classifier must match
+    // on the message so the early-reject path can strip + retry.
+    const promise = createWebSocketResponse("wss://test/ws", {}, BASE_REQUEST);
+    promise.catch(() => { /* asserted below */ });
+    const ws = await waitForOpen();
+
+    ws.emit("message", JSON.stringify({
+      type: "error",
+      error: {
+        code: "invalid_request_error",
+        message: "Invalid `previous_response_id`.",
+      },
+    }));
+
+    try {
+      await promise;
+      throw new Error("expected rejection");
+    } catch (err) {
+      expect(err).toBeInstanceOf(CodexApiError);
+      expect((err as CodexApiError).status).toBe(400);
+      expect((err as CodexApiError).body).toContain("previous_response_id");
+    }
+  });
+
   it("rejects with CodexApiError(402) when first frame is response.failed quota_exhausted", async () => {
     const promise = createWebSocketResponse("wss://test/ws", {}, BASE_REQUEST);
     promise.catch(() => { /* asserted below */ });

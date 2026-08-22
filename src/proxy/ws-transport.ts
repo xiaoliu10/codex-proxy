@@ -77,7 +77,15 @@ function classifyWsErrorEvent(msg: Record<string, unknown>): { status: number } 
     (typeof errorObj.type === "string" ? errorObj.type : null) ??
     "";
   const status = ROTATABLE_ERROR_CODES[codeRaw.toLowerCase()];
-  return status ? { status } : null;
+  if (status) return { status };
+  // gpt-5.6 upstream reports stale previous_response_id as a generic 400
+  // code (e.g. invalid_request_error) with a human-readable message — match
+  // on the message so the early-reject path can strip + retry.
+  const message = typeof errorObj.message === "string" ? errorObj.message.toLowerCase() : "";
+  if (message.includes("invalid") && message.includes("previous_response_id")) {
+    return { status: 400 };
+  }
+  return null;
 }
 
 function isTerminalWsEvent(type: string): boolean {

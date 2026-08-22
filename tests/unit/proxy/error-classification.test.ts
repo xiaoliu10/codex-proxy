@@ -9,6 +9,7 @@ import {
   isTokenInvalidError,
   isModelNotSupportedError,
   isUnansweredFunctionCallError,
+  isPreviousResponseNotFoundError,
 } from "@src/proxy/error-classification.js";
 
 describe("extractRetryAfterSec", () => {
@@ -159,6 +160,38 @@ describe("isModelNotSupportedError", () => {
   it("returns false when message lacks 'model'", () => {
     const err = new CodexApiError(400, '{"detail": "Feature not supported"}');
     expect(isModelNotSupportedError(err)).toBe(false);
+  });
+});
+
+describe("isPreviousResponseNotFoundError", () => {
+  it("detects structured code previous_response_not_found", () => {
+    const body = JSON.stringify({
+      error: { code: "previous_response_not_found", message: "Previous response not found" },
+    });
+    expect(isPreviousResponseNotFoundError(new CodexApiError(400, body))).toBe(true);
+  });
+
+  it("detects human-readable 'Previous response with id ... not found'", () => {
+    const body = JSON.stringify({
+      error: { message: "Previous response with id 'resp_x' not found.", type: "invalid_request_error" },
+    });
+    expect(isPreviousResponseNotFoundError(new CodexApiError(400, body))).toBe(true);
+  });
+
+  it("detects 'Invalid `previous_response_id`.' wording (gpt-5.6 upstream)", () => {
+    const body = JSON.stringify({
+      error: { message: "Invalid `previous_response_id`.", type: "invalid_request_error" },
+    });
+    expect(isPreviousResponseNotFoundError(new CodexApiError(400, body))).toBe(true);
+  });
+
+  it("returns false for unrelated 400", () => {
+    const body = JSON.stringify({ error: { message: "Something else broke" } });
+    expect(isPreviousResponseNotFoundError(new CodexApiError(400, body))).toBe(false);
+  });
+
+  it("returns false for non-CodexApiError", () => {
+    expect(isPreviousResponseNotFoundError(new Error("Invalid previous_response_id"))).toBe(false);
   });
 });
 
