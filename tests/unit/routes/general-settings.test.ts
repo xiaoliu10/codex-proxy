@@ -126,6 +126,7 @@ describe("GET /admin/general-settings", () => {
     const res = await app.request("/admin/general-settings");
     expect(res.status).toBe(200);
     const data = await res.json();
+    expect(data.reasoning_effort_options).toEqual(["low", "medium", "high", "xhigh", "max"]);
     expect(data).toMatchObject({
       port: 8080,
       proxy_url: null,
@@ -333,5 +334,55 @@ describe("POST /admin/general-settings", () => {
 
     expect(res.status).toBe(200);
     expect(mockLogStore.setState).toHaveBeenCalledWith({ enabled: true });
+  });
+
+  it("accepts default_reasoning_effort max", async () => {
+    const app = makeApp();
+    const res = await app.request("/admin/general-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ default_reasoning_effort: "max" }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    // The route test mocks reloadAllConfigs/getConfig, so the returned
+    // default remains the fixture's null value; persistence is asserted below.
+    expect(data.reasoning_effort_options).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(mutateYaml).toHaveBeenCalledOnce();
+    const mutate = vi.mocked(mutateYaml).mock.calls[0]?.[1];
+    const localConfig: Record<string, unknown> = {};
+    mutate?.(localConfig);
+    expect(localConfig).toEqual({
+      model: { default_reasoning_effort: "max" },
+    });
+  });
+
+  it("accepts null default_reasoning_effort (disabled)", async () => {
+    const app = makeApp();
+    const res = await app.request("/admin/general-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ default_reasoning_effort: null }),
+    });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.default_reasoning_effort).toBeNull();
+  });
+
+  it("rejects unknown default_reasoning_effort", async () => {
+    const app = makeApp();
+    const res = await app.request("/admin/general-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ default_reasoning_effort: "extreme" }),
+    });
+
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("default_reasoning_effort");
   });
 });

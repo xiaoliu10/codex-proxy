@@ -8,7 +8,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- 密钥管理支持手动重置 rate-limit 额度：添加账号级管理 API（GET/POST reset-credits），每张账号卡上显示可用重置次数 + 重置按钮（含确认对话框），幂等安全重试，消费后自动刷新配额及 usage/details。（`src/proxy/codex-reset-credits.ts`、`src/services/account-reset-credits.ts`、`src/routes/accounts.ts`、`web/src/components/AccountCard.tsx`、`web/src/components/ResetCreditDialog.tsx`）
+- 新增显式 `max` reasoning effort 支持：`POST /v1/chat/completions` 的 `reasoning_effort` 字段、Responses 风格的 `reasoning.effort`、General Settings 默认值、Ollama `think` 参数均接受 `max`；`-max` 保留给真实模型 ID（如 `gpt-5.1-codex-max`）不作为 reasoning 后缀，避免与模型 tier 冲突。（`src/reasoning-effort.ts`、`src/types/openai.ts`、`src/routes/admin/settings.ts`、`src/ollama/bridge.ts`、`web/src/components/GeneralSettings.tsx`、`web/src/components/ApiConfig.tsx`、`web/src/components/CodeExamples.tsx`、`web/src/components/AnthropicSetup.tsx`）
+
 ### Changed
+
+- Anthropic/Gemini 直连 adapter 不再将未映射的 reasoning effort（如 `max`、`minimal`、`none`）静默降级为 medium token budget；现在直接返回协议正确的 400 错误，caller 始终不会收到降级后的请求。（`src/translation/codex-request-to-anthropic.ts`、`src/translation/codex-request-to-gemini.ts`、`src/routes/shared/direct-request-handler.ts`）
 
 - 账号持久化从 `accounts.json` 主存储迁移到 `accounts.sqlite`，启动时自动从旧 JSON 迁移并继续保留 `accounts.json` 镜像用于降级/回滚；批量导入改为持久化批处理，避免每个账号同步重写整份 JSON 导致大批量导入卡死。（#657）
 - 重构：消除类型守卫 `isRecord` 的多处重复声明（收拢翻译层与路由层到 `shared-utils.ts`）

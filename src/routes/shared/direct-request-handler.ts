@@ -8,6 +8,7 @@
 import type { StatusCode } from "hono/utils/http-status";
 import { stream } from "hono/streaming";
 import { CodexApiError } from "../../proxy/codex-api.js";
+import { UnsupportedReasoningEffortError } from "../../reasoning-effort.js";
 import { randomUUID } from "crypto";
 import { enqueueLogEntry } from "../../logs/entry.js";
 import { recordStreamCloseEvent } from "../../logs/stream-close-event.js";
@@ -42,6 +43,31 @@ export async function handleDirectRequest(options: HandleDirectRequestOptions): 
       },
     });
   } catch (err) {
+    // Reasoning effort with no provider budget mapping (e.g. `max` sent to an
+    // Anthropic / Gemini direct upstream). The translator raises before any
+    // network call, so surface a protocol-correct 400 without retry.
+    if (err instanceof UnsupportedReasoningEffortError) {
+      enqueueLogEntry({
+        requestId,
+        direction: "egress",
+        method: "POST",
+        path: "/v1/responses",
+        model: req.model,
+        provider: upstream.tag,
+        status: 400,
+        latencyMs: Date.now() - startMs,
+        stream: req.isStreaming,
+        error: err.message,
+        request: {
+          model: req.codexRequest.model,
+          stream: req.codexRequest.stream,
+        },
+      });
+      c.status(400);
+      return c.json(
+        fmt.formatUnsupportedReasoningEffort?.(err) ?? fmt.formatError(400, err.message),
+      );
+    }
     const msg = err instanceof Error ? err.message : "Upstream request failed";
     const status = err instanceof CodexApiError ? err.status : 502;
     enqueueLogEntry({

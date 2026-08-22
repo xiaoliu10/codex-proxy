@@ -2,6 +2,10 @@
  * OpenAI API types for /v1/chat/completions compatibility
  */
 import { z } from "zod";
+import {
+  EXPLICIT_REASONING_EFFORTS,
+  isExplicitReasoningEffort,
+} from "../reasoning-effort.js";
 
 // --- Request ---
 
@@ -27,8 +31,8 @@ function safeStringify(value: unknown): string {
   }
 }
 
-function isReasoningEffort(value: unknown): value is "low" | "medium" | "high" | "xhigh" {
-  return value === "low" || value === "medium" || value === "high" || value === "xhigh";
+function isReasoningEffort(value: unknown): value is "low" | "medium" | "high" | "xhigh" | "max" {
+  return isExplicitReasoningEffort(value);
 }
 
 function isChatRole(value: unknown): value is "system" | "developer" | "user" | "assistant" | "tool" | "function" {
@@ -259,7 +263,7 @@ const ChatCompletionRequestObjectSchema = z.object({
   stop: z.union([z.string(), z.array(z.string())]).optional(),
   user: z.string().optional(),
   // Codex-specific extensions
-  reasoning_effort: z.enum(["low", "medium", "high", "xhigh"]).optional(),
+  reasoning_effort: z.enum(EXPLICIT_REASONING_EFFORTS).optional(),
   service_tier: z.enum(["fast", "flex"]).nullable().optional(),
   // New tool format. In addition to function tools, accept hosted web search
   // tools so OpenAI-compatible clients can ask Codex to search natively.

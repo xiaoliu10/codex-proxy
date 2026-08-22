@@ -523,6 +523,14 @@ export const PASSTHROUGH_FORMAT: FormatAdapter = {
       message: msg,
     },
   }),
+  formatUnsupportedReasoningEffort: (err) => ({
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      code: "unsupported_reasoning_effort",
+      message: `Unsupported reasoning_effort for this upstream: '${err.effort}' has no provider budget mapping`,
+    },
+  }),
   formatStreamError: (status, msg) => buildResponsesStreamError(status, msg),
   streamTranslator: ({ api, response, model, onUsage, onResponseId, onResponseCompleted, tupleSchema, streamContext, onResponseMetadata }) =>
     streamPassthrough(api, response, model, onUsage, onResponseId, tupleSchema, streamContext, onResponseCompleted, onResponseMetadata),

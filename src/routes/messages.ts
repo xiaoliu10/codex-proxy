@@ -105,6 +105,11 @@ function makeAnthropicFormat(wantThinking: boolean): FormatAdapter {
       ),
     format429: (msg) => makeError("rate_limit_error", msg),
     formatError: (_status, msg) => makeError("api_error", msg),
+    formatUnsupportedReasoningEffort: (err) =>
+      makeError(
+        "invalid_request_error",
+        `Unsupported reasoning_effort for this upstream: '${err.effort}' has no provider budget mapping`,
+      ),
     streamTranslator: ({
       api,
       response,

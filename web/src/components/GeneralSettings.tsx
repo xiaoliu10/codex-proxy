@@ -308,10 +308,9 @@ export function GeneralSettings() {
               onChange={(e) => setDraftReasoningEffort((e.target as HTMLSelectElement).value)}
             >
               <option value="">Disabled (no reasoning)</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-              <option value="xhigh">xhigh</option>
+              {(gs.data?.reasoning_effort_options ?? []).map((v) => (
+                <option key={v} value={v}>{v}</option>
+              ))}
             </select>
           </div>
 

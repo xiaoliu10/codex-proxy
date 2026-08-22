@@ -8,6 +8,7 @@ import type { UpstreamAdapter } from "../../proxy/upstream-adapter.js";
 import type { UsageInfo } from "../../translation/codex-event-extractor.js";
 import type { StreamCloseContextBase } from "../../logs/stream-close-event.js";
 import type { ReasoningReplayItem } from "../../proxy/reasoning-replay-cache.js";
+import type { UnsupportedReasoningEffortError } from "../../reasoning-effort.js";
 
 export interface StreamTranslatorContext extends StreamCloseContextBase {
   /** Request abort signal so format-specific translators can distinguish a
@@ -92,6 +93,13 @@ export interface FormatAdapter {
   formatNoAccount: () => unknown;
   format429: (message: string) => unknown;
   formatError: (status: number, message: string) => unknown;
+  /**
+   * Optional protocol-specific body for a request carrying a reasoning effort
+   * with no provider budget mapping (e.g. `max` on an Anthropic/Gemini direct
+   * upstream). When omitted the generic {@link formatError} body is used. The
+   * caller always sets HTTP 400.
+   */
+  formatUnsupportedReasoningEffort?: (err: UnsupportedReasoningEffortError) => unknown;
   formatStreamError?: (status: number, message: string) => string;
   streamTranslator: (options: FormatStreamTranslatorOptions) => AsyncGenerator<string>;
   collectTranslator: (options: FormatCollectTranslatorOptions) => Promise<FormatCollectTranslatorResult>;

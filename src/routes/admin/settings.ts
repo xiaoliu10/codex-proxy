@@ -4,6 +4,7 @@ import { getConfig, getLocalConfigPath, reloadAllConfigs, ROTATION_STRATEGIES } 
 import { logStore } from "../../logs/store.js";
 import { mutateYaml } from "../../utils/yaml-mutate.js";
 import { isLocalhostRequest } from "../../utils/is-localhost.js";
+import { EXPLICIT_REASONING_EFFORTS } from "../../reasoning-effort.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -118,6 +119,7 @@ export function createSettingsRoutes(): Hono {
       suppress_desktop_directives: config.model.suppress_desktop_directives,
       default_model: config.model.default,
       default_reasoning_effort: config.model.default_reasoning_effort,
+      reasoning_effort_options: [...EXPLICIT_REASONING_EFFORTS],
       model_aliases: config.model.aliases,
       refresh_enabled: config.auth.refresh_enabled,
       refresh_margin_seconds: config.auth.refresh_margin_seconds,
@@ -181,7 +183,7 @@ export function createSettingsRoutes(): Hono {
     }
 
     if (body.default_reasoning_effort !== undefined) {
-      const validEfforts = ["low", "medium", "high", "xhigh"];
+      const validEfforts: readonly string[] = EXPLICIT_REASONING_EFFORTS;
       if (
         body.default_reasoning_effort !== null &&
         !validEfforts.includes(body.default_reasoning_effort)
@@ -365,6 +367,7 @@ export function createSettingsRoutes(): Hono {
       suppress_desktop_directives: updated.model.suppress_desktop_directives,
       default_model: updated.model.default,
       default_reasoning_effort: updated.model.default_reasoning_effort,
+      reasoning_effort_options: [...EXPLICIT_REASONING_EFFORTS],
       model_aliases: updated.model.aliases,
       refresh_enabled: updated.auth.refresh_enabled,
       refresh_margin_seconds: updated.auth.refresh_margin_seconds,

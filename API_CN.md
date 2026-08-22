@@ -18,7 +18,7 @@ OpenAI 兼容的聊天补全接口。
   "model": "o4-mini",
   "messages": [{"role": "user", "content": "Hello"}],
   "stream": true,
-  "reasoning_effort": "medium"  // 可选: low | medium | high | xhigh
+  "reasoning_effort": "medium"  // 可选: low | medium | high | xhigh | max
 }
 ```
 

@@ -57,6 +57,14 @@ function makeOpenAIFormat(wantReasoning: boolean): FormatAdapter {
         code: "codex_api_error",
       },
     }),
+    formatUnsupportedReasoningEffort: (err) => ({
+      error: {
+        message: `Unsupported reasoning_effort for this upstream: '${err.effort}' has no provider budget mapping`,
+        type: "invalid_request_error",
+        param: "reasoning_effort",
+        code: "unsupported_reasoning_effort",
+      },
+    }),
     streamTranslator: ({ api, response, model, onUsage, onResponseId, onResponseCompleted, tupleSchema }) =>
       streamCodexToOpenAI(api, response, model, onUsage, onResponseId, wantReasoning, tupleSchema, onResponseCompleted),
     collectTranslator: ({ api, response, model, tupleSchema }) =>

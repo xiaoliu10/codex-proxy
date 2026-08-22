@@ -9,6 +9,8 @@ export interface GeneralSettingsData {
   suppress_desktop_directives: boolean;
   default_model: string;
   default_reasoning_effort: string | null;
+  /** Allowed reasoning-effort values, sourced from the backend policy. */
+  reasoning_effort_options: string[];
   model_aliases: Record<string, string>;
   refresh_enabled: boolean;
   refresh_margin_seconds: number;
@@ -77,6 +79,7 @@ export function useGeneralSettings(apiKey: string | null) {
         suppress_desktop_directives: result.suppress_desktop_directives,
         default_model: result.default_model,
         default_reasoning_effort: result.default_reasoning_effort,
+        reasoning_effort_options: result.reasoning_effort_options,
         model_aliases: result.model_aliases,
         refresh_enabled: result.refresh_enabled,
         refresh_margin_seconds: result.refresh_margin_seconds,

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { isLoopbackHostname } from "../utils/host.js";
+import { EXPLICIT_REASONING_EFFORTS } from "../reasoning-effort.js";
 
 
 export interface OllamaBridgeOptions {
@@ -333,7 +334,7 @@ function normalizeToolCalls(toolCalls: unknown): OllamaToolCall[] {
 
 function mapThinkToReasoningEffort(think: unknown): string | null {
   if (typeof think === "string") {
-    if (["low", "medium", "high", "xhigh"].includes(think)) return think;
+    if ((EXPLICIT_REASONING_EFFORTS as readonly string[]).includes(think)) return think;
     if (think === "false") return null;
     if (think === "true") return "medium";
   }

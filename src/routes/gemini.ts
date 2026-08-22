@@ -70,6 +70,12 @@ const GEMINI_FORMAT: FormatAdapter = {
     ),
   format429: (msg) => makeError(429, msg, "RESOURCE_EXHAUSTED"),
   formatError: (status, msg) => makeError(status, msg),
+  formatUnsupportedReasoningEffort: (err) =>
+    makeError(
+      400,
+      `Unsupported reasoning_effort for this upstream: '${err.effort}' has no provider budget mapping`,
+      "INVALID_ARGUMENT",
+    ),
   streamTranslator: ({ api, response, model, onUsage, onResponseId, onResponseCompleted, tupleSchema }) =>
     streamCodexToGemini(api, response, model, onUsage, onResponseId, tupleSchema, onResponseCompleted),
   collectTranslator: ({ api, response, model, tupleSchema }) =>

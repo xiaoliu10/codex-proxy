@@ -29,10 +29,14 @@ export function AnthropicSetup({ apiKey, selectedModel, reasoningEffort, service
   const [sonnetModel, setSonnetModel] = useState(DEFAULT_ANTHROPIC_MODELS.sonnet);
   const [haikuModel, setHaikuModel] = useState(DEFAULT_ANTHROPIC_MODELS.haiku);
 
-  // Custom model from ApiConfig
+  // Custom model from ApiConfig.
+  // `max` is not a model-name suffix; use General Settings default_reasoning_effort
+  // instead to express max reasoning through the proxy.
   const customModel = useMemo(() => {
     let name = selectedModel;
-    if (reasoningEffort && reasoningEffort !== "medium") name += `-${reasoningEffort}`;
+    if (reasoningEffort && reasoningEffort !== "medium" && reasoningEffort !== "max") {
+      name += `-${reasoningEffort}`;
+    }
     if (serviceTier === "fast") name += "-fast";
     return name;
   }, [selectedModel, reasoningEffort, serviceTier]);

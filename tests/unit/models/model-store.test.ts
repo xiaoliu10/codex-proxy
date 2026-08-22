@@ -445,6 +445,30 @@ aliases: {}
       expect(result.serviceTier).toBe("flex");
       expect(result.reasoningEffort).toBe("low");
     });
+
+    it("does NOT strip -max as reasoning suffix (reserved for model tier)", () => {
+      // gpt-5.4-max is NOT a reasoning suffix — max is only an explicit field
+      const result = parseModelName("gpt-5.4-max");
+      expect(result.modelId).toBe("gpt-5.3-codex"); // fallback default
+      expect(result.reasoningEffort).toBeNull();
+    });
+
+    it("gpt-5.1-codex-max is preserved as a complete model ID when in catalog", () => {
+      // Add gpt-5.1-codex-max to the YAML fixture so it's a known model
+      // Use a custom model to simulate the real tier
+      mockCustomModels.push("gpt-5.1-codex-max");
+      loadStaticModels("/tmp/test-config");
+
+      const result = parseModelName("gpt-5.1-codex-max");
+      expect(result.modelId).toBe("gpt-5.1-codex-max");
+      expect(result.reasoningEffort).toBeNull();
+    });
+
+    it("known model with -xhigh suffix still works", () => {
+      const result = parseModelName("gpt-5.3-codex-high");
+      expect(result.modelId).toBe("gpt-5.3-codex-high");
+      expect(result.reasoningEffort).toBeNull();
+    });
   });
 
   describe("isRecognizedModelName", () => {

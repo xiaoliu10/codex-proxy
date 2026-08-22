@@ -240,6 +240,18 @@ describe("E2E: POST /v1/chat/completions", () => {
     expect(sentBody.reasoning?.effort).toBe("high");
   });
 
+  it("reasoning_effort max: forwarded to upstream", async () => {
+    setTransportPost(async () =>
+      makeTransportResponse(buildReasoningStreamChunks("resp_chat_max", "thinking...", "Answer")),
+    );
+
+    const res = await chatRequest(defaultBody({ reasoning_effort: "max" }));
+    expect(res.status).toBe(200);
+
+    const sentBody = JSON.parse(getLastTransportBody()!);
+    expect(sentBody.reasoning?.effort).toBe("max");
+  });
+
   it("Cursor-style Responses payload: normalizes input and tools before forwarding", async () => {
     const res = await chatRequest({
       model: "gpt-5.4",
@@ -391,6 +403,14 @@ describe("E2E: POST /v1/chat/completions", () => {
     const sentBody = JSON.parse(getLastTransportBody()!);
     expect(sentBody.model).toBe("gpt-5.4");
     expect(sentBody.reasoning?.effort).toBe("high");
+  });
+
+  it("model suffix: gpt-5.4-max is not parsed as reasoning suffix", async () => {
+    // -max is a real model tier, not a reasoning suffix. An unknown model
+    // falls back to the config default, without extracting -max as effort.
+    const res = await chatRequest(defaultBody({ model: "gpt-5.4-max" }));
+    // Returns 404 because gpt-5.4-max is not in the static catalog
+    expect(res.status).toBe(404);
   });
 
   // ── Image generation ──────────────────────────────────────────

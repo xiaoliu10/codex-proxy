@@ -18,6 +18,7 @@ import yaml from "js-yaml";
 import { getConfig } from "../config.js";
 import type { AppConfig } from "../config-schema.js";
 import { getConfigDir, getDataDir } from "../paths.js";
+import { LEGACY_EFFORT_SUFFIXES } from "../reasoning-effort.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -118,7 +119,10 @@ interface NormalizedModelWithMeta extends CodexModelInfo {
 // ── Constants ────────────────────────────────────────────────────────
 
 const SERVICE_TIER_SUFFIXES = new Set(["fast", "flex"]);
-const EFFORT_SUFFIXES = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
+// `max` is intentionally excluded: the `-max` segment denotes a real model
+// tier (e.g. gpt-5.1-codex-max), not a reasoning level. Use the explicit
+// reasoning_effort field / config default / Ollama `think` to request max.
+const EFFORT_SUFFIXES = new Set<string>(LEGACY_EFFORT_SUFFIXES);
 
 export function stripKnownModelSuffixes(input: string): {
   modelName: string;
