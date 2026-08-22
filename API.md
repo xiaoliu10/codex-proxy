@@ -18,7 +18,7 @@ OpenAI-compatible chat completion.
   "model": "o4-mini",
   "messages": [{"role": "user", "content": "Hello"}],
   "stream": true,
-  "reasoning_effort": "medium"  // optional: low | medium | high | xhigh
+  "reasoning_effort": "medium"  // optional: low | medium | high | xhigh | max
 }
 ```
 
@@ -183,7 +183,7 @@ without requiring clients to know that key.
   "model": "codex",
   "messages": [{"role": "user", "content": "Hello"}],
   "stream": true,
-  "think": "medium"  // optional: false | true | low | medium | high | xhigh
+  "think": "medium"  // optional: false | true | low | medium | high | xhigh | max
 }
 ```
 

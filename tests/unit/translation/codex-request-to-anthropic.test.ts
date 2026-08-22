@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { translateCodexToAnthropicRequest } from "@src/translation/codex-request-to-anthropic.js";
+import { UnsupportedReasoningEffortError } from "@src/reasoning-effort.js";
 import type { CodexResponsesRequest } from "@src/proxy/codex-types.js";
 
 function makeBaseRequest(overrides: Partial<CodexResponsesRequest> = {}): CodexResponsesRequest {
@@ -69,6 +70,24 @@ describe("translateCodexToAnthropicRequest", () => {
     });
     const result = translateCodexToAnthropicRequest(req, "claude-3-7-sonnet-20250219");
     expect(result.thinking).toEqual({ type: "enabled", budget_tokens: 16000 });
+  });
+
+  it("throws for max reasoning effort (no provider budget)", () => {
+    const req = makeBaseRequest({
+      input: [{ role: "user", content: "think" }],
+      reasoning: { effort: "max" },
+    });
+    expect(() => translateCodexToAnthropicRequest(req, "claude-3-7-sonnet-20250219"))
+      .toThrow(UnsupportedReasoningEffortError);
+  });
+
+  it("maps xhigh to 32000 budget_tokens", () => {
+    const req = makeBaseRequest({
+      input: [{ role: "user", content: "think" }],
+      reasoning: { effort: "xhigh" },
+    });
+    const result = translateCodexToAnthropicRequest(req, "claude-3-7-sonnet-20250219");
+    expect(result.thinking).toEqual({ type: "enabled", budget_tokens: 32000 });
   });
 
   it("has max_tokens set", () => {

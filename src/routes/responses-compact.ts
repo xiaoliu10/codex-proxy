@@ -5,10 +5,12 @@
 import type { Context } from "hono";
 import type { StatusCode } from "hono/utils/http-status";
 import type { AccountPool } from "../auth/account-pool.js";
+import { clearCfChallengeCooldown } from "../auth/cf-challenge-cooldown.js";
 import type { CookieJar } from "../proxy/cookie-jar.js";
 import type { ProxyPool } from "../proxy/proxy-pool.js";
 import { CodexApi, CodexApiError } from "../proxy/codex-api.js";
-import type { CodexCompactRequest, CodexInputItem } from "../proxy/codex-api.js";
+import type { CodexCompactRequest } from "../proxy/codex-api.js";
+import { sanitizeCodexInputItems } from "../proxy/reasoning-input-sanitizer.js";
 import type { UsageInfo } from "../translation/codex-event-extractor.js";
 import type { UpstreamRouter } from "../proxy/upstream-router.js";
 import { parseModelName, resolveModelId } from "../models/model-store.js";
@@ -17,7 +19,8 @@ import { acquireAccount, releaseAccount } from "./shared/account-acquisition.js"
 import { handleCodexApiError } from "./shared/proxy-error-handler.js";
 import { staggerIfNeeded } from "./shared/proxy-stagger.js";
 import { withRetry } from "../utils/retry.js";
-import { isRecord, PASSTHROUGH_FORMAT } from "./responses-passthrough.js";
+import { PASSTHROUGH_FORMAT } from "./responses-passthrough.js";
+import { isRecord } from "../translation/shared-utils.js";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -59,7 +62,7 @@ export async function handleCompact(
 
   const compactRequest: CodexCompactRequest = {
     model: modelId,
-    input: Array.isArray(body.input) ? (body.input as CodexInputItem[]) : [],
+    input: Array.isArray(body.input) ? sanitizeCodexInputItems(body.input) : [],
     instructions: typeof body.instructions === "string" ? body.instructions : "",
   };
   if (Array.isArray(body.tools) && body.tools.length > 0) {
@@ -145,6 +148,7 @@ export async function handleCompact(
         { tag: TAG },
       );
 
+      clearCfChallengeCooldown(entryId);
       releaseAccount(accountPool, entryId, compactImageFailedUsage, released);
       return c.json(result);
     } catch (err) {

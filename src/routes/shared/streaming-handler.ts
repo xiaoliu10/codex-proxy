@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { stream } from "hono/streaming";
 import type { AccountPool } from "../../auth/account-pool.js";
+import { clearCfChallengeCooldown } from "../../auth/cf-challenge-cooldown.js";
 import type { SessionAffinityMap } from "../../auth/session-affinity.js";
 import type { CodexApi } from "../../proxy/codex-api.js";
 import { recordStreamCloseEvent } from "../../logs/stream-close-event.js";
@@ -11,6 +12,8 @@ import { annotateImageGenOutcome } from "./proxy-handler-utils.js";
 import { streamResponse } from "./response-processor.js";
 import { createResponseMetadataCollector } from "./response-metadata-collector.js";
 import { logProxyUsage } from "./proxy-usage-log.js";
+import { getReasoningReplayCache } from "../../proxy/reasoning-replay-cache.js";
+import { getWsPool } from "../../proxy/ws-pool.js";
 
 export interface HandleStreamingOptions {
   c: Context;
@@ -28,6 +31,14 @@ export interface HandleStreamingOptions {
   turnState?: string;
   usageHint?: UsageHint;
   variantHash: string;
+  /** Whether this attempt was sent with an implicit-resume
+   *  `previous_response_id`. Needed to break the dead-chain retry loop:
+   *  if the upstream stream ends without response.completed while resume was
+   *  active — silent close OR terminal error/response.failed frame — the
+   *  cached prev id chain is poisoned and must be dropped so the client's
+   *  retry performs a full-input replay instead of resending the same dead
+   *  delta. */
+  implicitResumeActive?: boolean;
 }
 
 export function handleStreaming(options: HandleStreamingOptions): Response {
@@ -47,6 +58,7 @@ export function handleStreaming(options: HandleStreamingOptions): Response {
     turnState,
     usageHint,
     variantHash,
+    implicitResumeActive = false,
   } = options;
 
   c.header("Content-Type", "text/event-stream");
@@ -61,10 +73,18 @@ export function handleStreaming(options: HandleStreamingOptions): Response {
   let usageInfo: UsageInfo | undefined;
   let capturedResponseId: string | null = null;
   let responseCompleted = false;
+  let streamCompletedWithoutError = false;
   const metadataCollector = createResponseMetadataCollector();
+  const reasoningReplayCache = getReasoningReplayCache();
 
   return stream(c, async (s) => {
+    let clientAborted = false;
+    let streamFailed = true;
     s.onAbort(() => {
+      if (streamCompletedWithoutError || responseCompleted) {
+        return;
+      }
+      clientAborted = true;
       console.warn(`[stream-client-abort] rid=${requestId.slice(0, 8)} tag=${fmt.tag} model=${req.model}`);
       recordStreamCloseEvent({
         kind: "client-abort",
@@ -90,6 +110,22 @@ export function handleStreaming(options: HandleStreamingOptions): Response {
         Array.from(metadataCollector.responseFunctionCallIds),
         variantHash,
       );
+      if (!metadataCollector.invalidReasoningReplay && metadataCollector.reasoningReplayItems.length > 0) {
+        reasoningReplayCache.record({
+          responseId: capturedResponseId,
+          entryId: capturedEntryId,
+          conversationId,
+          variantHash,
+          items: metadataCollector.reasoningReplayItems,
+        });
+      }
+    };
+    const evictReasoningReplayIdentity = (): void => {
+      reasoningReplayCache.evictByIdentity({
+        entryId: capturedEntryId,
+        conversationId,
+        variantHash,
+      });
     };
     try {
       await streamResponse({
@@ -115,6 +151,9 @@ export function handleStreaming(options: HandleStreamingOptions): Response {
         usageHint,
         onResponseMetadata: (metadata) => {
           metadataCollector.onResponseMetadata(metadata);
+          if (metadataCollector.invalidReasoningReplay) {
+            evictReasoningReplayIdentity();
+          }
           recordStreamAffinity();
         },
         diagnostics: {
@@ -127,9 +166,37 @@ export function handleStreaming(options: HandleStreamingOptions): Response {
           abortSignal: abortController.signal,
         },
       });
+      streamFailed = false;
+      streamCompletedWithoutError = true;
     } finally {
-      abortController.abort();
+      if (streamFailed && !clientAborted && !abortController.signal.aborted) {
+        abortController.abort();
+      }
       recordStreamAffinity();
+      if (implicitResumeActive && !responseCompleted && !clientAborted) {
+        // A resumed stream that ends without response.completed — whether via
+        // silent close, an upstream terminal error/response.failed frame, or a
+        // transport exception — leaves the prev id chain poisoned: the
+        // client's retry would resend the same delta against the same dead
+        // prev id and loop. The pooled WS may also keep rehashing to the same
+        // bad backend. Drop both so the retry does a full-input replay over a
+        // fresh connection instead.
+        const cause = metadataCollector.terminalFailure
+          ? "terminal failure frame"
+          : metadataCollector.prematureClose
+            ? "premature close"
+            : "stream ended without response.completed";
+        const dropped = affinityMap.forgetConversation(conversationId, variantHash);
+        getWsPool().evictByEntryId(capturedEntryId);
+        console.warn(
+          `[implicit-resume-poison] rid=${requestId.slice(0, 8)} tag=${fmt.tag} model=${req.model}` +
+            ` ${cause} on resumed stream — dropped ${dropped} affinity entries` +
+            ` conv=${conversationId.slice(0, 8)} vh=${variantHash.slice(0, 12)}` +
+            ` and evicted pooled WS for entry=${capturedEntryId.slice(0, 8)};` +
+            ` next retry will replay full input on a fresh connection`,
+        );
+      }
+      if (streamCompletedWithoutError) clearCfChallengeCooldown(capturedEntryId);
       if (usageInfo) {
         logProxyUsage({
           tag: fmt.tag,

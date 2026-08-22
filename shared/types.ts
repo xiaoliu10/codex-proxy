@@ -27,6 +27,20 @@ export interface AccountQuota {
   }> | null;
   /** Credit accounting from /codex/usage. Null for Plus, present for Pro / PAYG. */
   credits?: AccountQuotaCredits | null;
+  /**
+   * Banked manual reset credits available to consume.
+   * - `{ available_count }` — upstream reported a non-negative count.
+   * - `null` — upstream explicitly reported the account has no reset entitlement.
+   * - `undefined` — field absent (unknown / older cache).
+   */
+  rate_limit_reset_credits?: AccountResetCreditsSummary | null;
+}
+
+/** Reset-credit summary cached in AccountQuota. */
+export interface AccountResetCreditsSummary {
+  available_count: number;
+  /** ISO-8601 timestamp of when this summary was last refreshed from upstream. */
+  fetched_at?: string;
 }
 
 export interface QuotaWarning {
@@ -103,4 +117,42 @@ export interface TestConnectionResult {
   checks: DiagnosticCheck[];
   overall: DiagnosticStatus;
   timestamp: string;
+}
+
+// ── Reset credit types (API responses shared between client and server) ──
+
+export interface ResetCreditDetail {
+  id: string;
+  reset_type?: string | null;
+  status?: string | null;
+  granted_at?: string | null;
+  expires_at?: string | null;
+  title?: string | null;
+  description?: string | null;
+}
+
+export interface ResetCreditsDetailsResponse {
+  account_id: string;
+  available_count: number;
+  credits: ResetCreditDetail[];
+  recommended_credit_id: string | null;
+  fetched_at: string;
+}
+
+export interface ResetCreditsConsumeRequest {
+  redeem_request_id: string;
+  credit_id?: string;
+}
+
+export interface ResetCreditsConsumeResponse {
+  success: boolean;
+  code: string;
+  idempotent: boolean;
+  windows_reset?: number;
+  redeem_request_id: string;
+  credit_id: string | null;
+  available_count: number;
+  quota?: AccountQuota | null;
+  refresh: { usage: "ok" | "failed"; reset_credits: "ok" | "failed" };
+  quota_verify_required: boolean;
 }

@@ -213,6 +213,40 @@ describe("ChatCompletionRequestSchema", () => {
     }
   });
 
+  it("parses reasoning_effort max", () => {
+    const result = ChatCompletionRequestSchema.safeParse({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "Think hard" }],
+      reasoning_effort: "max",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.reasoning_effort).toBe("max");
+    }
+  });
+
+  it("normalizes Responses-style reasoning effort max", () => {
+    const result = ChatCompletionRequestSchema.safeParse({
+      model: "gpt-5.4",
+      instructions: "Think deeply.",
+      input: [{ role: "user", content: "Why?" }],
+      reasoning: { effort: "max" },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.reasoning_effort).toBe("max");
+    }
+  });
+
+  it("rejects invalid reasoning_effort", () => {
+    const result = ChatCompletionRequestSchema.safeParse({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "Hi" }],
+      reasoning_effort: "extreme",
+    });
+    expect(result.success).toBe(false);
+  });
+
   it("parses service_tier", () => {
     const result = ChatCompletionRequestSchema.safeParse({
       model: "gpt-5.4",

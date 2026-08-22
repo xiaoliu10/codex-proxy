@@ -80,6 +80,7 @@ import { handleDirectRequest } from "@src/routes/shared/direct-request-handler.j
 import { handleProxyRequest } from "@src/routes/shared/proxy-handler.js";
 // Both imported — handleDirectRequest for passthrough tests, handleProxyRequest for non-passthrough verification
 import { CodexApiError } from "@src/proxy/codex-api.js";
+import { UnsupportedReasoningEffortError } from "@src/reasoning-effort.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -248,6 +249,34 @@ describe("handleDirectRequest error forwarding", () => {
     const body = await res.json();
     expect(body.type).toBe("error");
     expect(body.error.type).toBe("invalid_request_error");
+  });
+
+  it("returns 400 for unsupported reasoning effort without calling upstream", async () => {
+    const upstream = createMockUpstream();
+    const req = createDefaultRequest();
+    const fmt = createMockFormatAdapter({
+      formatUnsupportedReasoningEffort: vi.fn((err) => ({
+        error: {
+          type: "invalid_request_error",
+          code: err.code,
+          message: err.message,
+        },
+      })),
+    });
+    const app = new Hono();
+    app.post("/test", (c) => handleDirectRequest({ c, upstream: upstream as never, req, fmt }));
+
+    // The real Anthropic/Gemini translators throw before fetch. Simulate that
+    // exact boundary and verify the direct handler preserves the 400 contract.
+    upstream.createResponse = vi.fn(() =>
+      Promise.reject(new UnsupportedReasoningEffortError("max")),
+    );
+
+    const res = await app.request("/test", { method: "POST" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: { code: "unsupported_reasoning_effort" } });
+    expect(upstream.createResponse).toHaveBeenCalledOnce();
+    expect(fmt.formatUnsupportedReasoningEffort).toHaveBeenCalledOnce();
   });
 
   it("uses formatError for non-CodexApiError exceptions", async () => {

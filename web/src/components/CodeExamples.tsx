@@ -158,16 +158,26 @@ export function CodeExamples({ baseUrl, apiKey, model, reasoningEffort, serviceT
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
-  // Build compound model name with suffixes for CLI users
+  // Build compound model name with suffixes for CLI users.
+  // `max` is intentionally NOT a model-name suffix: it travels only through the
+  // explicit `reasoning_effort` field so it never collides with real model tiers
+  // (e.g. `gpt-5.1-codex-max`).
   const displayModel = useMemo(() => {
     let name = model;
-    if (reasoningEffort && reasoningEffort !== "medium") name += `-${reasoningEffort}`;
+    if (reasoningEffort && reasoningEffort !== "medium" && reasoningEffort !== "max") {
+      name += `-${reasoningEffort}`;
+    }
     if (serviceTier === "fast") name += "-fast";
     return name;
   }, [model, reasoningEffort, serviceTier]);
 
-  // When effort/speed are embedded as suffixes, don't also show separate reasoning_effort param
-  const explicitEffort = displayModel === model ? reasoningEffort : "medium";
+  // When effort/speed are embedded as suffixes, don't also show separate reasoning_effort param.
+  // For `max` (which is never a suffix), always show the explicit field.
+  const explicitEffort = reasoningEffort === "max"
+    ? "max"
+    : displayModel === model
+      ? reasoningEffort
+      : "medium";
   const examples = useMemo(
     () => buildExamples(baseUrl, apiKey, displayModel, origin, explicitEffort),
     [baseUrl, apiKey, displayModel, origin, explicitEffort]

@@ -87,7 +87,22 @@ describe("ApiKeyModelCache", () => {
     expect(JSON.stringify(persistence.snapshot())).not.toContain("gem-key");
   });
 
-  it("builds custom provider cache keys from normalized model URLs", async () => {
+  it("uses x-api-key for Anthropic model discovery", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({ data: [{ id: "claude-test", display_name: "Claude Test" }] }));
+    const cache = new ApiKeyModelCache({ persistence: createMemoryPersistence(), fetchFn });
+
+    await cache.fetchModels({ provider: "custom", apiKey: "sk-ant", baseUrl: "https://anthropic.example.com/v1", wire: "anthropic" });
+
+    expect(fetchFn.mock.calls[0][1]).toEqual({
+      headers: {
+        "x-api-key": "sk-ant",
+        "anthropic-version": "2023-06-01",
+        Accept: "application/json",
+      },
+    });
+  });
+
+  it("builds custom provider cache keys from normalized model URLs and wire", async () => {
     const persistence = createMemoryPersistence();
     const fetchFn = vi.fn(async () => jsonResponse({ data: [{ id: "custom-model" }] }));
     const cache = new ApiKeyModelCache({ persistence, fetchFn });
@@ -96,7 +111,28 @@ describe("ApiKeyModelCache", () => {
     await cache.fetchModels({ provider: "custom", apiKey: "another-key", baseUrl: "https://example.com/v1" });
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
-    expect(Object.keys(persistence.snapshot().entries)).toEqual(["https://example.com/v1/models"]);
+    expect(Object.keys(persistence.snapshot().entries)).toEqual(["https://example.com/v1/models#wire=chat"]);
+  });
+
+  it("does not reuse custom model cache entries across different wires", async () => {
+    const persistence = createMemoryPersistence();
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("key=")) return jsonResponse({ models: [{ name: "models/gemini-model", displayName: "Gemini Model" }] });
+      return jsonResponse({ data: [{ id: "chat-model", name: "Chat Model" }] });
+    });
+    const cache = new ApiKeyModelCache({ persistence, fetchFn });
+
+    const chatModels = await cache.fetchModels({ provider: "custom", apiKey: "custom-key", baseUrl: "https://example.com/v1", wire: "chat" });
+    const geminiModels = await cache.fetchModels({ provider: "custom", apiKey: "custom-key", baseUrl: "https://example.com/v1", wire: "gemini" });
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(chatModels).toEqual([{ id: "chat-model", displayName: "Chat Model" }]);
+    expect(geminiModels).toEqual([{ id: "gemini-model", displayName: "Gemini Model" }]);
+    expect(Object.keys(persistence.snapshot().entries).sort()).toEqual([
+      "https://example.com/v1/models#wire=chat",
+      "https://example.com/v1/models#wire=gemini",
+    ]);
   });
 
   it("returns cached models in the built-in catalog", () => {
@@ -124,17 +160,23 @@ describe("ApiKeyModelCache", () => {
   });
 
   it("normalizes provider model payloads", () => {
-    expect(normalizeProviderModels("openai", { data: [{ id: "gpt", name: "GPT" }, { id: "gpt", name: "Duplicate" }] })).toEqual([
+    expect(normalizeProviderModels({ provider: "openai" }, { data: [{ id: "gpt", name: "GPT" }, { id: "gpt", name: "Duplicate" }] })).toEqual([
       { id: "gpt", displayName: "Duplicate" },
     ]);
-    expect(normalizeProviderModels("anthropic", { data: [{ id: "claude", display_name: "Claude" }] })).toEqual([
+    expect(normalizeProviderModels({ provider: "anthropic" }, { data: [{ id: "claude", display_name: "Claude" }] })).toEqual([
       { id: "claude", displayName: "Claude" },
     ]);
-    expect(normalizeProviderModels("gemini", { models: [{ name: "models/gemini", displayName: "Gemini" }] })).toEqual([
+    expect(normalizeProviderModels({ provider: "gemini" }, { models: [{ name: "models/gemini", displayName: "Gemini" }] })).toEqual([
       { id: "gemini", displayName: "Gemini" },
     ]);
-    expect(normalizeProviderModels("custom", { data: [{ id: "custom", display_name: "Custom" }] })).toEqual([
+    expect(normalizeProviderModels({ provider: "custom" }, { data: [{ id: "custom", display_name: "Custom" }] })).toEqual([
       { id: "custom", displayName: "Custom" },
+    ]);
+    expect(normalizeProviderModels({ provider: "custom", wire: "anthropic" }, { data: [{ id: "claude-custom", display_name: "Claude Custom" }] })).toEqual([
+      { id: "claude-custom", displayName: "Claude Custom" },
+    ]);
+    expect(normalizeProviderModels({ provider: "custom", wire: "gemini" }, { models: [{ name: "models/gemini-custom", displayName: "Gemini Custom" }] })).toEqual([
+      { id: "gemini-custom", displayName: "Gemini Custom" },
     ]);
   });
 });

@@ -7,6 +7,8 @@ import type { ProxyPool } from "../../proxy/proxy-pool.js";
 import type { UpstreamAdapter } from "../../proxy/upstream-adapter.js";
 import type { UsageInfo } from "../../translation/codex-event-extractor.js";
 import type { StreamCloseContextBase } from "../../logs/stream-close-event.js";
+import type { ReasoningReplayItem } from "../../proxy/reasoning-replay-cache.js";
+import type { UnsupportedReasoningEffortError } from "../../reasoning-effort.js";
 
 export interface StreamTranslatorContext extends StreamCloseContextBase {
   /** Request abort signal so format-specific translators can distinguish a
@@ -37,6 +39,19 @@ export interface UsageHint {
 
 export interface ResponseMetadata {
   functionCallIds?: string[];
+  reasoningReplayItems?: ReasoningReplayItem[];
+  invalidReasoningReplay?: boolean;
+  /** The upstream stream ended before a terminal event (response.completed /
+   *  response.failed) without a classifiable error. When implicit resume was
+   *  active, the `previous_response_id` chain for this conversation must be
+   *  treated as poisoned — the client's retry would otherwise replay the same
+   *  stale prev id into the same silent failure. */
+  prematureClose?: boolean;
+  /** The upstream stream ended with a terminal failure frame (`error` /
+   *  `response.failed`) instead of `response.completed`. Tracked separately
+   *  from `prematureClose` for diagnostics; both poison an implicit-resume
+   *  chain the same way. */
+  terminalFailure?: boolean;
 }
 
 export interface FormatStreamTranslatorOptions {
@@ -78,6 +93,13 @@ export interface FormatAdapter {
   formatNoAccount: () => unknown;
   format429: (message: string) => unknown;
   formatError: (status: number, message: string) => unknown;
+  /**
+   * Optional protocol-specific body for a request carrying a reasoning effort
+   * with no provider budget mapping (e.g. `max` on an Anthropic/Gemini direct
+   * upstream). When omitted the generic {@link formatError} body is used. The
+   * caller always sets HTTP 400.
+   */
+  formatUnsupportedReasoningEffort?: (err: UnsupportedReasoningEffortError) => unknown;
   formatStreamError?: (status: number, message: string) => string;
   streamTranslator: (options: FormatStreamTranslatorOptions) => AsyncGenerator<string>;
   collectTranslator: (options: FormatCollectTranslatorOptions) => Promise<FormatCollectTranslatorResult>;

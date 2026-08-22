@@ -23,6 +23,7 @@ const EFFORT_LABELS: Record<string, string> = {
   medium: "Medium",
   high: "High",
   xhigh: "XHigh",
+  max: "Max",
 };
 
 export function ApiConfig({

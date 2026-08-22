@@ -12,8 +12,16 @@ import { getRotationStrategy } from "./rotation-strategy.js";
 import type { RotationStrategy, RotationState, RotationStrategyName } from "./rotation-strategy.js";
 import type { AccountRegistry } from "./account-registry.js";
 import type { AccountEntry, AcquiredAccount } from "./types.js";
+import { isCfChallengeCooldownActive } from "./cf-challenge-cooldown.js";
 
 const ACQUIRE_LOCK_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export interface AccountCapacitySummary {
+  max_concurrent_per_account: number;
+  total_slots: number;
+  used_slots: number;
+  available_slots: number;
+}
 
 export class AccountLifecycle {
   /** Per-account active slot timestamps. Each entry = one in-flight request. */
@@ -47,15 +55,7 @@ export class AccountLifecycle {
     if (slots.length === 0) this.acquireLocks.delete(entryId);
   }
 
-  acquire(options?: { model?: string; excludeIds?: string[]; preferredEntryId?: string }): AcquiredAccount | null {
-    const nowMs = Date.now();
-    const now = new Date(nowMs);
-
-    const entries = this.registry.getAllEntries();
-    for (const entry of entries) {
-      this.registry.refreshStatus(entry, now);
-    }
-
+  private cleanupStaleSlots(nowMs: number): void {
     // Auto-release stale slots (slots are chronological — if oldest is fresh, all are)
     for (const [id, slots] of this.acquireLocks) {
       if (nowMs - slots[0] <= ACQUIRE_LOCK_TTL_MS) continue;
@@ -70,6 +70,18 @@ export class AccountLifecycle {
         this.acquireLocks.set(id, fresh);
       }
     }
+  }
+
+  acquire(options?: { model?: string; excludeIds?: string[]; preferredEntryId?: string }): AcquiredAccount | null {
+    const nowMs = Date.now();
+    const now = new Date(nowMs);
+
+    const entries = this.registry.getAllEntries();
+    for (const entry of entries) {
+      this.registry.refreshStatus(entry, now);
+    }
+
+    this.cleanupStaleSlots(nowMs);
 
     const config = getConfig();
     const maxConcurrent = config.auth.max_concurrent_per_account ?? 3;
@@ -81,6 +93,7 @@ export class AccountLifecycle {
         a.status === "active" &&
         this.slotCount(a.id) < maxConcurrent &&
         (!excludeSet || !excludeSet.has(a.id)) &&
+        !isCfChallengeCooldownActive(a.id) &&
         (!skipExhausted || !hasReachedCachedQuota(a)),
     );
 
@@ -193,6 +206,7 @@ export class AccountLifecycle {
         a.status === "active" &&
         this.slotCount(a.id) < maxConcurrent &&
         a.planType &&
+        !isCfChallengeCooldownActive(a.id) &&
         (!skipExhausted || !hasReachedCachedQuota(a)),
     );
 
@@ -220,5 +234,40 @@ export class AccountLifecycle {
     }
 
     return result;
+  }
+
+  getCapacitySummary(): AccountCapacitySummary {
+    const nowMs = Date.now();
+    const now = new Date(nowMs);
+    const config = getConfig();
+    const maxConcurrent = config.auth.max_concurrent_per_account ?? 3;
+    const skipExhausted = config.quota?.skip_exhausted === true;
+
+    const entries = this.registry.getAllEntries();
+    for (const entry of entries) {
+      this.registry.refreshStatus(entry, now);
+    }
+    this.cleanupStaleSlots(nowMs);
+
+    let totalSlots = 0;
+    let usedSlots = 0;
+    let availableSlots = 0;
+
+    for (const entry of entries) {
+      if (entry.status !== "active") continue;
+      if (skipExhausted && hasReachedCachedQuota(entry)) continue;
+
+      const used = Math.min(this.slotCount(entry.id), maxConcurrent);
+      totalSlots += maxConcurrent;
+      usedSlots += used;
+      availableSlots += maxConcurrent - used;
+    }
+
+    return {
+      max_concurrent_per_account: maxConcurrent,
+      total_slots: totalSlots,
+      used_slots: usedSlots,
+      available_slots: availableSlots,
+    };
   }
 }

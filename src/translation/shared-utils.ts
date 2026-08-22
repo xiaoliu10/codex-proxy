@@ -10,6 +10,7 @@ import { getConfig } from "../config.js";
 import type { AppConfig } from "../config.js";
 import { getConfigDir } from "../paths.js";
 import { hasTupleSchemas, convertTupleSchemas } from "./tuple-schema.js";
+import { REASONING_EFFORT_BUDGET } from "../reasoning-effort.js";
 
 /** Subset of model config used by translation functions. */
 export type ModelConfigOverride = Pick<
@@ -180,6 +181,13 @@ function walkSchema(node: Record<string, unknown>, seen: Set<object>): Record<st
   return node;
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
+
+/**
+ * Re-exported from {@link ../reasoning-effort.js} for backward compatibility.
+ * Prefer importing {@link resolveProviderBudget} directly for new code so
+ * unmapped efforts (e.g. `max`) raise instead of silently degrading.
+ */
+export { REASONING_EFFORT_BUDGET };

@@ -10,6 +10,7 @@
  */
 
 import { getConfig } from "../config.js";
+import { createHash } from "crypto";
 import { getTransport, type TlsTransport } from "../tls/transport.js";
 import {
   buildHeaders,
@@ -23,6 +24,7 @@ import { normalizeOpenAISubagent, OPENAI_SUBAGENT_HEADER } from "./openai-subage
 export type { WsPoolContext };
 import { parseSSEBlock, parseSSEStream } from "./codex-sse.js";
 import { fetchUsage } from "./codex-usage.js";
+import { fetchResetCredits, consumeResetCredit } from "./codex-reset-credits.js";
 import { fetchModels, probeEndpoint as probeEndpointFn } from "./codex-models.js";
 import type { CookieJar } from "./cookie-jar.js";
 import type { BackendModelEntry } from "../models/model-store.js";
@@ -52,6 +54,12 @@ export type {
   CodexUsageCredits,
   CodexUsageSpendControl,
   CodexUsageRateLimitReachedType,
+  CodexUsageRateLimitResetCredits,
+  CodexRateLimitResetCredit,
+  CodexRateLimitResetCreditsResponse,
+  CodexConsumeResetCreditRequest,
+  CodexConsumeResetCreditResponse,
+  CodexConsumeResetCreditCode,
 } from "./codex-types.js";
 
 // Re-export SSE utilities for consumers that used them via CodexApi
@@ -65,6 +73,9 @@ import {
   type CodexCompactResponse,
   type CodexSSEEvent,
   type CodexUsageResponse,
+  type CodexRateLimitResetCreditsResponse,
+  type CodexConsumeResetCreditRequest,
+  type CodexConsumeResetCreditResponse,
 } from "./codex-types.js";
 
 export class CodexApi {
@@ -108,18 +119,33 @@ export class CodexApi {
     conversationId: string | null;
     windowId: string | null;
   } {
-    const conversationId =
+    const clientConversationId =
       typeof request.prompt_cache_key === "string" && request.prompt_cache_key.trim()
         ? request.prompt_cache_key.trim()
         : null;
+    const conversationId = clientConversationId
+      ? this.buildAccountScopedIdentity("conversation", clientConversationId)
+      : null;
+    const clientWindowId = this.firstRequestString(request, X_CODEX_WINDOW_ID_HEADER);
     return {
       conversationId,
-      windowId:
-        (typeof request.codexWindowId === "string" && request.codexWindowId.trim()
-          ? request.codexWindowId.trim()
-          : null) ??
-        (conversationId ? `${conversationId}:0` : null),
+      windowId: clientWindowId
+        ? this.buildAccountScopedIdentity("window", clientWindowId)
+        : conversationId ? `${conversationId}:0` : null,
     };
+  }
+
+  private buildAccountScopedIdentity(kind: "conversation" | "window", clientValue: string): string {
+    const accountScope = this.entryId ?? this.accountId ?? "anonymous";
+    const digest = createHash("sha256")
+      .update(kind)
+      .update("\0")
+      .update(accountScope)
+      .update("\0")
+      .update(clientValue)
+      .digest("hex")
+      .slice(0, 32);
+    return `${kind === "conversation" ? "cp" : "cw"}_${digest}`;
   }
 
   private firstRequestString(request: CodexResponsesRequest, key: string): string | null {
@@ -196,7 +222,35 @@ export class CodexApi {
     const headers = this.applyHeaders(
       buildHeaders(this.token, this.accountId),
     );
-    return fetchUsage(headers, this.proxyUrl);
+    return fetchUsage(headers, this.proxyUrl, this.resolveBaseUrl(), this.resolveTransport());
+  }
+
+  /** List banked rate-limit reset credits for this account. */
+  async getResetCredits(): Promise<CodexRateLimitResetCreditsResponse> {
+    const headers = this.applyHeaders(
+      buildHeaders(this.token, this.accountId),
+    );
+    return fetchResetCredits(headers, this.proxyUrl, this.resolveBaseUrl(), this.resolveTransport());
+  }
+
+  /**
+   * Consume one rate-limit reset credit. The caller owns the idempotency key:
+   * pass the same redeem_request_id when retrying an unknown outcome. This
+   * method performs exactly one POST — no fallback, no automatic retry.
+   */
+  async consumeResetCredit(
+    request: CodexConsumeResetCreditRequest,
+  ): Promise<CodexConsumeResetCreditResponse> {
+    const headers = this.applyHeaders(
+      buildHeadersWithContentType(this.token, this.accountId),
+    );
+    return consumeResetCredit(
+      headers,
+      request,
+      this.proxyUrl,
+      this.resolveBaseUrl(),
+      this.resolveTransport(),
+    );
   }
 
   /**
@@ -337,7 +391,7 @@ export class CodexApi {
     if (request.text) wsRequest.text = request.text;
     const serviceTier = normalizeServiceTierForUpstream(request.service_tier);
     if (serviceTier) wsRequest.service_tier = serviceTier;
-    if (request.prompt_cache_key) wsRequest.prompt_cache_key = request.prompt_cache_key;
+    if (identity.conversationId) wsRequest.prompt_cache_key = identity.conversationId;
     if (request.include?.length) wsRequest.include = request.include;
     wsRequest.client_metadata = this.buildCodexClientMetadata(request, installationId, identity.windowId);
 
@@ -392,6 +446,7 @@ export class CodexApi {
     const bodyWithMetadata = {
       ...bodyFields,
       ...(upstreamServiceTier ? { service_tier: upstreamServiceTier } : {}),
+      ...(identity.conversationId ? { prompt_cache_key: identity.conversationId } : {}),
       client_metadata: this.buildCodexClientMetadata(request, installationId, identity.windowId),
     };
     const body = JSON.stringify(bodyWithMetadata);
@@ -427,7 +482,7 @@ export class CodexApi {
         }
       }
       const errorBody = Buffer.concat(chunks).toString("utf-8");
-      throw new CodexApiError(transportRes.status, errorBody);
+      throw new CodexApiError(transportRes.status, errorBody, transportRes.headers);
     }
 
     return new Response(transportRes.body, {
@@ -481,7 +536,7 @@ export class CodexApi {
     const responseBody = Buffer.concat(chunks).toString("utf-8");
 
     if (transportRes.status < 200 || transportRes.status >= 300) {
-      throw new CodexApiError(transportRes.status, responseBody);
+      throw new CodexApiError(transportRes.status, responseBody, transportRes.headers);
     }
 
     try {

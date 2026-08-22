@@ -145,6 +145,20 @@ export interface CodexQuota {
       limit_reached: boolean;
     } | null;
   }> | null;
+  /**
+   * Banked manual reset credits available to consume.
+   * - `{ available_count }` — upstream reported a non-negative count.
+   * - `null` — upstream explicitly reported the account has no reset entitlement.
+   * - `undefined` — field absent (passive header path / older cache); treat as "unknown".
+   */
+  rate_limit_reset_credits?: CodexRateLimitResetCreditsSummary | null;
+}
+
+/** Normalized reset-credit summary cached alongside CodexQuota. */
+export interface CodexRateLimitResetCreditsSummary {
+  available_count: number;
+  /** ISO-8601 timestamp of when this summary was last refreshed from upstream. */
+  fetched_at?: string;
 }
 
 /** Returned by acquire() */

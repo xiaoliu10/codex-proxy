@@ -10,6 +10,7 @@
  */
 
 import type { CodexInputItem, CodexContentPart, CodexResponsesRequest } from "../proxy/codex-types.js";
+import { resolveProviderBudget } from "../reasoning-effort.js";
 
 /** Anthropic content block shapes. */
 type AnthropicContentBlock =
@@ -91,12 +92,6 @@ function inputItemsToAnthropicMessages(input: CodexInputItem[]): AnthropicMessag
   return messages;
 }
 
-const REASONING_EFFORT_BUDGET: Record<string, number> = {
-  low: 1024,
-  medium: 8192,
-  high: 16000,
-  xhigh: 32000,
-};
 
 export function translateCodexToAnthropicRequest(
   req: CodexResponsesRequest,
@@ -129,9 +124,11 @@ export function translateCodexToAnthropicRequest(
     body.system = systemInstructions.join("\n\n");
   }
 
-  // Thinking budget for extended reasoning
+  // Thinking budget for extended reasoning. Unknown efforts (e.g. max) raise
+  // instead of silently degrading to a medium budget — callers translate the
+  // error into a protocol-correct 400.
   if (req.reasoning?.effort) {
-    const budget = REASONING_EFFORT_BUDGET[req.reasoning.effort] ?? 8192;
+    const budget = resolveProviderBudget(req.reasoning.effort);
     body.thinking = { type: "enabled", budget_tokens: budget };
   }
 

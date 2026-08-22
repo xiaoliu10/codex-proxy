@@ -238,6 +238,37 @@ describe("Ollama bridge routes", () => {
     });
   });
 
+  it("maps think: max to reasoning_effort: max", async () => {
+    fetchMock.mockResolvedValueOnce(json({
+      id: "chatcmpl_test",
+      object: "chat.completion",
+      created: 1700000000,
+      model: "gpt-5.4",
+      choices: [{
+        index: 0,
+        message: { role: "assistant", content: "ok" },
+        finish_reason: "stop",
+      }],
+      usage: { prompt_tokens: 5, completion_tokens: 3 },
+    }));
+    const app = createApp();
+
+    const res = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4",
+        stream: false,
+        think: "max",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const upstreamBody = JSON.parse(fetchMock.mock.calls[0][1]?.body as string) as Record<string, unknown>;
+    expect(upstreamBody.reasoning_effort).toBe("max");
+  });
+
   it("converts OpenAI SSE chat chunks to Ollama NDJSON", async () => {
     const sse = [
       `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "think " } }] })}`,

@@ -22,6 +22,9 @@ interface AccountListProps {
   onImport?: (file: File) => Promise<{ success: boolean; added: number; updated: number; failed: number; errors: string[] }>;
   onToggleStatus?: (id: string, currentStatus: string) => Promise<string | null>;
   onUpdateLabel?: (id: string, label: string | null) => Promise<string | null>;
+  onRefreshQuota?: (id: string) => Promise<void>;
+  onPrepareResetCredit?: (id: string) => Promise<unknown>;
+  onConsumeResetCredit?: (id: string, request: { redeem_request_id: string; credit_id?: string }) => Promise<unknown>;
 }
 
 const PAGE_SIZE = 10;
@@ -35,7 +38,7 @@ function getBrowserStorage(): Storage | null {
   }
 }
 
-export function AccountList({ accounts, loading, onDelete, onRefresh, refreshing, lastUpdated, proxies, onProxyChange, onExport, onImport, onToggleStatus, onUpdateLabel }: AccountListProps) {
+export function AccountList({ accounts, loading, onDelete, onRefresh, refreshing, lastUpdated, proxies, onProxyChange, onExport, onImport, onToggleStatus, onUpdateLabel, onRefreshQuota, onPrepareResetCredit, onConsumeResetCredit }: AccountListProps) {
   const t = useT();
   const { lang } = useI18n();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -390,14 +393,7 @@ export function AccountList({ accounts, loading, onDelete, onRefresh, refreshing
           </div>
         ) : (
           displayAccounts.slice(0, visibleCount).map((acct, i) => (
-            <AccountCard key={acct.id} account={acct} index={i} onDelete={onDelete} proxies={proxies} onProxyChange={onProxyChange} selected={selectedIds.has(acct.id)} onToggleSelect={toggleSelect} onRefreshQuota={async (id) => {
-              const encoded = encodeURIComponent(id);
-              const resp = await fetch(`/auth/accounts/${encoded}/quota`);
-              if (!resp.ok) {
-                console.warn(`[AccountList] Failed to refresh quota for account ${id}: ${resp.status}`);
-              }
-              onRefresh();
-            }} onToggleStatus={onToggleStatus} onUpdateLabel={onUpdateLabel} />
+            <AccountCard key={acct.id} account={acct} index={i} onDelete={onDelete} proxies={proxies} onProxyChange={onProxyChange} selected={selectedIds.has(acct.id)} onToggleSelect={toggleSelect} onRefreshQuota={onRefreshQuota} onToggleStatus={onToggleStatus} onUpdateLabel={onUpdateLabel} onPrepareResetCredit={onPrepareResetCredit} onConsumeResetCredit={onConsumeResetCredit} />
           ))
         )}
       </div>

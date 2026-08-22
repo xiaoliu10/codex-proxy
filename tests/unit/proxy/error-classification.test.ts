@@ -3,11 +3,13 @@ import { CodexApiError } from "@src/proxy/codex-types.js";
 import {
   extractRetryAfterSec,
   isBanError,
+  isCfChallengeError,
   isCfPathBlockError,
   isQuotaExhaustedError,
   isTokenInvalidError,
   isModelNotSupportedError,
   isUnansweredFunctionCallError,
+  isPreviousResponseNotFoundError,
 } from "@src/proxy/error-classification.js";
 
 describe("extractRetryAfterSec", () => {
@@ -72,6 +74,16 @@ describe("isBanError", () => {
     expect(isBanError(err)).toBe(false);
   });
 
+  it("returns false for CF challenge 403 (mitigation headers)", () => {
+    const err = new CodexApiError(403, "cf-mitigated: challenge; cf-chl-bypass: managed");
+    expect(isBanError(err)).toBe(false);
+  });
+
+  it("returns false for CF challenge 403 when the signal is only in response headers", () => {
+    const err = new CodexApiError(403, "", new Headers({ "cf-mitigated": "challenge" }));
+    expect(isBanError(err)).toBe(false);
+  });
+
   it("returns false for CF challenge 403 (HTML page)", () => {
     const err = new CodexApiError(403, '<!DOCTYPE html><html><head></head></html>');
     expect(isBanError(err)).toBe(false);
@@ -86,6 +98,25 @@ describe("isBanError", () => {
     expect(isBanError(new Error("random"))).toBe(false);
     expect(isBanError("string")).toBe(false);
     expect(isBanError(null)).toBe(false);
+  });
+});
+
+describe("isCfChallengeError", () => {
+  it("returns true for Cloudflare challenge indicators", () => {
+    expect(isCfChallengeError(new CodexApiError(403, "<html>cf_chl challenge</html>"))).toBe(true);
+    expect(isCfChallengeError(new CodexApiError(403, "<html>Just a Moment</html>"))).toBe(true);
+    expect(isCfChallengeError(new CodexApiError(403, "cf-mitigated: challenge"))).toBe(true);
+    expect(isCfChallengeError(new CodexApiError(403, "", new Headers({ "cf-chl-bypass": "managed" })))).toBe(true);
+  });
+
+  it("returns false for non-CF 403 bans", () => {
+    const err = new CodexApiError(403, '{"detail": "Your account has been flagged"}');
+    expect(isCfChallengeError(err)).toBe(false);
+  });
+
+  it("returns false for non-403 and non-Codex errors", () => {
+    expect(isCfChallengeError(new CodexApiError(404, "<html>cf_chl challenge</html>"))).toBe(false);
+    expect(isCfChallengeError(new Error("cf_chl"))).toBe(false);
   });
 });
 
@@ -129,6 +160,38 @@ describe("isModelNotSupportedError", () => {
   it("returns false when message lacks 'model'", () => {
     const err = new CodexApiError(400, '{"detail": "Feature not supported"}');
     expect(isModelNotSupportedError(err)).toBe(false);
+  });
+});
+
+describe("isPreviousResponseNotFoundError", () => {
+  it("detects structured code previous_response_not_found", () => {
+    const body = JSON.stringify({
+      error: { code: "previous_response_not_found", message: "Previous response not found" },
+    });
+    expect(isPreviousResponseNotFoundError(new CodexApiError(400, body))).toBe(true);
+  });
+
+  it("detects human-readable 'Previous response with id ... not found'", () => {
+    const body = JSON.stringify({
+      error: { message: "Previous response with id 'resp_x' not found.", type: "invalid_request_error" },
+    });
+    expect(isPreviousResponseNotFoundError(new CodexApiError(400, body))).toBe(true);
+  });
+
+  it("detects 'Invalid `previous_response_id`.' wording (gpt-5.6 upstream)", () => {
+    const body = JSON.stringify({
+      error: { message: "Invalid `previous_response_id`.", type: "invalid_request_error" },
+    });
+    expect(isPreviousResponseNotFoundError(new CodexApiError(400, body))).toBe(true);
+  });
+
+  it("returns false for unrelated 400", () => {
+    const body = JSON.stringify({ error: { message: "Something else broke" } });
+    expect(isPreviousResponseNotFoundError(new CodexApiError(400, body))).toBe(false);
+  });
+
+  it("returns false for non-CodexApiError", () => {
+    expect(isPreviousResponseNotFoundError(new Error("Invalid previous_response_id"))).toBe(false);
   });
 });
 

@@ -4,6 +4,7 @@ import { getConfig, getLocalConfigPath, reloadAllConfigs, ROTATION_STRATEGIES } 
 import { logStore } from "../../logs/store.js";
 import { mutateYaml } from "../../utils/yaml-mutate.js";
 import { isLocalhostRequest } from "../../utils/is-localhost.js";
+import { EXPLICIT_REASONING_EFFORTS } from "../../reasoning-effort.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -44,6 +45,7 @@ function normalizeModelAliases(input: unknown): {
 export function createSettingsRoutes(): Hono {
   const app = new Hono();
 
+
   // --- Rotation settings ---
 
   app.get("/admin/rotation-settings", (c) => {
@@ -54,18 +56,6 @@ export function createSettingsRoutes(): Hono {
   });
 
   app.post("/admin/rotation-settings", async (c) => {
-    const config = getConfig();
-    const currentKey = config.server.proxy_api_key;
-
-    if (currentKey) {
-      const authHeader = c.req.header("Authorization") ?? "";
-      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (token !== currentKey) {
-        c.status(401);
-        return c.json({ error: "Invalid current API key" });
-      }
-    }
-
     const body = await c.req.json() as { rotation_strategy?: string };
     const valid: readonly string[] = ROTATION_STRATEGIES;
     if (!body.rotation_strategy || !valid.includes(body.rotation_strategy)) {
@@ -96,16 +86,6 @@ export function createSettingsRoutes(): Hono {
   app.post("/admin/settings", async (c) => {
     const config = getConfig();
     const currentKey = config.server.proxy_api_key;
-
-    if (currentKey) {
-      const authHeader = c.req.header("Authorization") ?? "";
-      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (token !== currentKey) {
-        c.status(401);
-        return c.json({ error: "Invalid current API key" });
-      }
-    }
-
     const body = await c.req.json() as { proxy_api_key?: string | null };
     const newKey = body.proxy_api_key === undefined ? currentKey : (body.proxy_api_key || null);
 
@@ -139,6 +119,7 @@ export function createSettingsRoutes(): Hono {
       suppress_desktop_directives: config.model.suppress_desktop_directives,
       default_model: config.model.default,
       default_reasoning_effort: config.model.default_reasoning_effort,
+      reasoning_effort_options: [...EXPLICIT_REASONING_EFFORTS],
       model_aliases: config.model.aliases,
       refresh_enabled: config.auth.refresh_enabled,
       refresh_margin_seconds: config.auth.refresh_margin_seconds,
@@ -159,17 +140,6 @@ export function createSettingsRoutes(): Hono {
 
   app.post("/admin/general-settings", async (c) => {
     const config = getConfig();
-    const currentKey = config.server.proxy_api_key;
-
-    if (currentKey) {
-      const authHeader = c.req.header("Authorization") ?? "";
-      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (token !== currentKey) {
-        c.status(401);
-        return c.json({ error: "Invalid current API key" });
-      }
-    }
-
     const body = await c.req.json() as {
       port?: number;
       proxy_url?: string | null;
@@ -213,7 +183,7 @@ export function createSettingsRoutes(): Hono {
     }
 
     if (body.default_reasoning_effort !== undefined) {
-      const validEfforts = ["low", "medium", "high", "xhigh"];
+      const validEfforts: readonly string[] = EXPLICIT_REASONING_EFFORTS;
       if (
         body.default_reasoning_effort !== null &&
         !validEfforts.includes(body.default_reasoning_effort)
@@ -397,6 +367,7 @@ export function createSettingsRoutes(): Hono {
       suppress_desktop_directives: updated.model.suppress_desktop_directives,
       default_model: updated.model.default,
       default_reasoning_effort: updated.model.default_reasoning_effort,
+      reasoning_effort_options: [...EXPLICIT_REASONING_EFFORTS],
       model_aliases: updated.model.aliases,
       refresh_enabled: updated.auth.refresh_enabled,
       refresh_margin_seconds: updated.auth.refresh_margin_seconds,
@@ -428,18 +399,6 @@ export function createSettingsRoutes(): Hono {
   });
 
   app.post("/admin/quota-settings", async (c) => {
-    const config = getConfig();
-    const currentKey = config.server.proxy_api_key;
-
-    if (currentKey) {
-      const authHeader = c.req.header("Authorization") ?? "";
-      const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-      if (token !== currentKey) {
-        c.status(401);
-        return c.json({ error: "Invalid current API key" });
-      }
-    }
-
     const body = await c.req.json() as {
       refresh_interval_minutes?: number;
       warning_thresholds?: { primary?: number[]; secondary?: number[] };
